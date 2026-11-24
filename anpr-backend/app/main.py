@@ -1,8 +1,8 @@
-
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.schemas import DetectionCreate
 from app.data import cameras
@@ -10,6 +10,12 @@ from app.database import SessionLocal
 from app.models import Detection
 
 app = FastAPI()
+
+
+# How long a repeat sighting counts as a duplicate (seconds).
+# The pipeline also dedups in memory for the same window, so a
+# plate seen again within 30 seconds is stored only once.
+DUPLICATE_WINDOW_SECONDS = 30
 
 
 # Database session dependency
@@ -47,17 +53,52 @@ def create_detection(
     detection: DetectionCreate,
     db: Session = Depends(get_db)
 ):
+    # Normalise the plate so "od02ab1234" and "OD02AB1234" dedup
+    # against each other instead of being stored twice.
+    plate_text = detection.plate_text.strip().upper()
+    now = datetime.now(timezone.utc)
+
+    # Duplicate guard: the same plate from the same camera stored
+    # very recently is a repeat sighting, not a new detection.
+    # Return the existing row instead of storing a duplicate.
+    cutoff = now - timedelta(seconds=DUPLICATE_WINDOW_SECONDS)
+    existing = (
+        db.query(Detection)
+        .filter(
+            Detection.camera_id == detection.camera_id,
+            Detection.plate_text == plate_text,
+            Detection.timestamp >= cutoff,
+        )
+        .order_by(Detection.timestamp.desc())
+        .first()
+    )
+    if existing is not None:
+        return {
+            "message": "Duplicate detection ignored",
+            "duplicate": True,
+            "data": detection_to_dict(existing)
+        }
+
     new_detection = Detection(
         event_id=str(uuid4()),
         camera_id=detection.camera_id,
-        plate_text=detection.plate_text,
+        plate_text=plate_text,
         confidence=detection.confidence,
-        timestamp=datetime.now(timezone.utc)
+        timestamp=now
     )
 
-    db.add(new_detection)
-    db.commit()
-    db.refresh(new_detection)
+    try:
+        db.add(new_detection)
+        db.commit()
+        db.refresh(new_detection)
+    except SQLAlchemyError:
+        # A failed commit must not leave the session broken for the
+        # next request, and must not crash the server.
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Could not store detection"
+        )
 
     return {
         "message": "Detection stored successfully",
@@ -69,6 +110,8 @@ def create_detection(
 @app.get("/api/detections")
 def get_detections(
     camera_id: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
     query = db.query(Detection)
@@ -78,10 +121,18 @@ def get_detections(
             Detection.camera_id == camera_id
         )
 
-    results = query.order_by(Detection.timestamp.desc()).all()
+    # total_detections is the filtered total, not the page size,
+    # so callers can page through all results.
+    total = query.count()
+    results = (
+        query.order_by(Detection.timestamp.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     return {
-        "total_detections": len(results),
+        "total_detections": total,
         "detections": [
             detection_to_dict(item) for item in results
         ]
