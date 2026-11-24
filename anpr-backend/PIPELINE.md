@@ -17,7 +17,10 @@ PostgreSQL backend, not the solo project's SQLite one.
    model returns plate boxes + YOLO confidence. See the warning
    below about weights.
 4. **Recognize plate text using EasyOCR** — EasyOCR reads each
-   plate crop. An empty result returns no text instead of crashing.
+   plate crop (A-Z0-9 allowlist only). If the first read fails
+   validation or is low-confidence, the crop is upscaled 2x +
+   grayscaled and read again; the best valid read is kept. An
+   empty result returns no text instead of crashing.
 5. **Calculate detection confidence** — simple average of the YOLO
    and OCR confidences, clamped to 0–1. Only valid plates at/above
    `MIN_CONFIDENCE` (default 0.5) are sent.
@@ -63,7 +66,11 @@ Only text matching the Indian plate format is sent:
 2 letters + 2 digits + 1–2 letters + 4 digits, e.g. `OD02AB1234`.
 A position-aware fix (e.g. `O` → `0` where a digit is required)
 is only applied to 10-character text, and the result is flagged
-as corrected in the log line. Anything else is skipped as invalid.
+as corrected in the log line. An 11-character read may drop one
+leading/trailing junk character and retry the fix; a 9-character
+read is never repaired (that would invent a missing digit).
+Skipped plates are logged with the raw OCR text and both
+confidences. Anything else is skipped as invalid.
 
 ## Camera validation
 
@@ -170,9 +177,14 @@ Junction (online), CAM02 Jaydev Vihar (online), CAM03 KIIT Square
   ultralytics / NumPy version is claimed here — install from
   `requirements.txt` and use the versions it pulls in.
 - EasyOCR downloads its models on first use (internet needed once).
-- Syntax-checked only (`python -m py_compile`) — not run here.
-  Install + weights + a running backend are needed on your
-  machine first.
+- Tested in a VM on 2026-11-24 (backend live + pipeline on clean
+  and hard test videos). Clean Telangana plates (`TS09EX1234`,
+  `TS08AB7777`) send fine. Two known hard-case limits: on the hard
+  OD video YOLO finds the plate but EasyOCR reads only 9 characters
+  (`0D02A8123`), which cannot be repaired without inventing a digit,
+  so nothing is sent; on the hard TS videos (200 px plate, skewed +
+  blurred + dimmed) YOLO finds no plate at all, even at confidence
+  0.10 — that is a model limit, not a pipeline bug.
 - The indexes in `models.py` only take effect on a fresh table
   created by `create_tables.py`; an existing `detections` table
   needs them added manually.

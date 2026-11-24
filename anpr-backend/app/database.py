@@ -14,7 +14,6 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 # take precedence (override=False).
 _BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(_BASE_DIR / ".env", override=False)
-load_dotenv(override=False)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 

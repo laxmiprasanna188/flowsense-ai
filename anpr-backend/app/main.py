@@ -198,7 +198,6 @@ def get_cameras():
 # GET: Retrieve one camera by camera ID
 @app.get("/api/cameras/{camera_id}")
 def get_camera(camera_id: str):
-
     for camera in cameras:
         if camera["camera_id"] == camera_id:
             return {

@@ -9,29 +9,11 @@
 # - Generate structured detection results.
 # - Send detection results to your FastAPI endpoint.
 #
-# Improvements over the first version (kept to the same 7 steps):
-# - Error handling: an empty OCR result, a bad plate crop, a camera
-#   that will not open, a missing model file, or a down API no longer
-#   crash the run. The bad frame / plate is logged and skipped and
-#   the loop continues. The camera is always released (finally).
-# - Duplicate detection: the same plate from the same camera is not
-#   re-sent within DEDUP_SECONDS (default 30 seconds).
-# - Plate validation: only text matching the Indian plate format
-#   (2 letters + 2 digits + 1-2 letters + 4 digits, e.g. OD02AB1234)
-#   is sent, and only when confidence is at/above MIN_CONFIDENCE
-#   (default 0.5).
-# - Frame skipping: only every FRAME_SKIP-th frame is processed
-#   (default 5), so YOLO + EasyOCR can keep up on CPU.
-# - API failure: the send is retried once. If it still fails, the
-#   detection is appended to failed_detections.jsonl (with the error)
-#   instead of being lost silently, and the loop continues.
-# - Settings: .env in the anpr-backend folder is now loaded at
-#   startup (real env vars still win); a bad numeric setting falls
-#   back to its default with a warning instead of crashing at
-#   import; MODEL_PATH and a video-file VIDEO_SOURCE are resolved
-#   relative to the anpr-backend folder as a fallback, so running
-#   from the repo root no longer looks for the model in the
-#   wrong place. Run from the anpr-backend folder — see PIPELINE.md.
+# Behaviour, in short: a bad frame / plate is logged and skipped,
+# never a crash; the camera is always released. The same plate +
+# camera is not re-sent within DEDUP_SECONDS. Only valid Indian
+# plates at/above MIN_CONFIDENCE are sent. A failed send is
+# retried once, then logged to failed_detections.jsonl.
 #
 # The API only ever receives {camera_id, plate_text, confidence}.
 # Full results are not logged here; failed sends are logged only so
@@ -61,13 +43,8 @@ from ultralytics import YOLO
 # folder). Run the pipeline from there — see PIPELINE.md.
 _BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- Load .env (fix: settings were previously ignored) ---
-# The pipeline used to read os.getenv only, so CAMERA_ID,
-# VIDEO_SOURCE, FASTAPI_URL, MODEL_PATH, FRAME_SKIP, DEDUP_SECONDS,
-# MIN_CONFIDENCE, API_TIMEOUT_SECONDS and FAILED_LOG in .env were
-# ignored unless the user exported them by hand in the terminal.
-# python-dotenv is already in requirements.txt. Real environment
-# variables take precedence over .env (override=False).
+# --- Load .env ---
+# Real environment variables take precedence over .env (override=False).
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - dotenv is in requirements.txt
@@ -78,14 +55,14 @@ if load_dotenv is not None:
     load_dotenv(Path.cwd() / ".env", override=False)
 
 
-def _env_int(name, default):
-    """Read an int setting safely — a bad value falls back to the
-    default with a clear warning instead of crashing at import."""
+def _env_number(name, default, cast):
+    """Read a numeric setting safely — a bad value falls back to
+    the default with a clear warning instead of crashing at import."""
     raw = os.getenv(name)
     if raw is None or str(raw).strip() == "":
         return default
     try:
-        return int(str(raw).strip())
+        return cast(str(raw).strip())
     except ValueError:
         print(
             f"[pipeline] warning: {name}={raw!r} is not a number, "
@@ -93,34 +70,20 @@ def _env_int(name, default):
             file=sys.stderr,
         )
         return default
+
+
+def _env_int(name, default):
+    return _env_number(name, default, int)
 
 
 def _env_float(name, default):
-    """Read a float setting safely — same fallback as _env_int."""
-    raw = os.getenv(name)
-    if raw is None or str(raw).strip() == "":
-        return default
-    try:
-        return float(str(raw).strip())
-    except ValueError:
-        print(
-            f"[pipeline] warning: {name}={raw!r} is not a number, "
-            f"using default {default}",
-            file=sys.stderr,
-        )
-        return default
+    return _env_number(name, default, float)
 
 
 def _resolve_relative(path_str, default_base=_BASE_DIR):
     """Resolve a relative path, preferring the current folder, then
-    the anpr-backend folder.
+    the anpr-backend folder. An absolute path is used as-is."""
 
-    This fixes MODEL_PATH (and a video-file VIDEO_SOURCE) being
-    relative to the cwd: running `python anpr-backend/app/
-    yolo_pipeline.py` from the repo root used to look for
-    models/yolov8-plate.pt in the repo root, where it is not.
-    An absolute path is used as-is.
-    """
     if not path_str:
         return path_str
     path = Path(path_str)
@@ -172,6 +135,9 @@ FAILED_LOG = (
 INDIAN_PLATE_RE = re.compile(r"^([A-Z]{2})(\d{2})([A-Z]{1,2})(\d{4})$")
 _DIGIT_FIX = {"O": "0", "Q": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2", "G": "6"}
 _LETTER_FIX = {"0": "O", "1": "I", "5": "S", "8": "B", "2": "Z"}
+# EasyOCR allowlist: plates contain letters and digits only, so
+# junk characters such as '(' never enter the recognised text.
+_OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 # (camera_id, plate_text) -> last sent time, epoch seconds.
 _recently_sent = {}
@@ -189,6 +155,27 @@ def _clamp_confidence(value):
         return 0.0
 
 
+def _position_fix(cleaned):
+    """Position-aware character fix for a 10-character read.
+
+    Returns (fixed_text, True) if a fix was applied and the result
+    matches the Indian plate format, else ("", False). Only
+    characters in the wrong kind of position are swapped (O->0
+    where a digit is required, 0->O where a letter is required).
+    """
+    chars, corrected = list(cleaned), False
+    for i, ch in enumerate(chars):
+        digit_pos = i in (2, 3, 6, 7, 8, 9)
+        if digit_pos and ch in _DIGIT_FIX:
+            chars[i], corrected = _DIGIT_FIX[ch], True
+        elif not digit_pos and ch in _LETTER_FIX:
+            chars[i], corrected = _LETTER_FIX[ch], True
+    fixed = "".join(chars)
+    if corrected and INDIAN_PLATE_RE.match(fixed):
+        return fixed, True
+    return "", False
+
+
 def validate_plate_text(raw):
     """Validate plate text as an Indian plate.
 
@@ -196,6 +183,11 @@ def validate_plate_text(raw):
     character fix (O->0 in a digit position, etc.) is only applied
     when the text is 10 characters long and the fixed text then
     matches the format; the result is flagged corrected=True.
+    An 11-character read may first drop one leading or trailing
+    junk character and then retry the same fix — that only removes
+    a character, it never invents one. A 9-character read cannot
+    be repaired without inventing a missing digit, so it stays
+    invalid. Only a full valid Indian-format plate is ever sent.
     """
     if not raw:
         return "", False, False, "empty OCR result"
@@ -205,16 +197,29 @@ def validate_plate_text(raw):
     if INDIAN_PLATE_RE.match(cleaned):
         return cleaned, True, False, "matches Indian plate format"
     if len(cleaned) == 10:
-        chars, corrected = list(cleaned), False
-        for i, ch in enumerate(chars):
-            digit_pos = i in (2, 3, 6, 7, 8, 9)
-            if digit_pos and ch in _DIGIT_FIX:
-                chars[i], corrected = _DIGIT_FIX[ch], True
-            elif not digit_pos and ch in _LETTER_FIX:
-                chars[i], corrected = _LETTER_FIX[ch], True
-        fixed = "".join(chars)
-        if corrected and INDIAN_PLATE_RE.match(fixed):
+        fixed, ok = _position_fix(cleaned)
+        if ok:
             return fixed, True, True, "position-aware correction applied"
+    if len(cleaned) == 11:
+        # Drop exactly one leading or trailing character, then
+        # retry the 10-character fix on what remains.
+        for candidate in (cleaned[1:], cleaned[:-1]):
+            if INDIAN_PLATE_RE.match(candidate):
+                return (
+                    candidate,
+                    True,
+                    True,
+                    "dropped one leading/trailing junk character",
+                )
+            fixed, ok = _position_fix(candidate)
+            if ok:
+                return (
+                    fixed,
+                    True,
+                    True,
+                    "dropped one leading/trailing junk character "
+                    "and applied position-aware correction",
+                )
     return cleaned, False, False, "does not match Indian plate format"
 
 
@@ -227,8 +232,14 @@ def is_duplicate(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
     return (time.time() - last_sent) < dedup_seconds
 
 
-def mark_sent(camera_id, plate_text):
-    _recently_sent[(camera_id, plate_text)] = time.time()
+def mark_sent(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
+    # Prune entries older than the window so the cache does not
+    # grow without bound on a long run.
+    now = time.time()
+    for key, sent_at in list(_recently_sent.items()):
+        if now - sent_at >= dedup_seconds:
+            del _recently_sent[key]
+    _recently_sent[(camera_id, plate_text)] = now
 
 
 def log_failed_detection(detection, error):
@@ -307,18 +318,21 @@ def detect_number_plates(model, frame):
     return plates
 
 
-def recognize_plate_text(reader, plate_image):
-    """Step 4: recognize plate text with EasyOCR.
+def _ocr_once(reader, plate_image):
+    """One EasyOCR pass over an image.
 
-    Returns (plate_text, recognition_confidence). An empty crop or
-    an OCR result with no text returns ("", 0.0) instead of
-    crashing on results[0]. The best result (highest OCR
-    confidence) is used, not just the first one.
+    Returns (plate_text, recognition_confidence). An empty result
+    or an OCR failure returns ("", 0.0) instead of crashing on
+    results[0]. The best result (highest OCR confidence) is used,
+    not just the first one. Only A-Z0-9 are allowed, so junk
+    characters never enter the recognised text.
     """
     if plate_image is None or getattr(plate_image, "size", 0) == 0:
         return "", 0.0
     try:
-        results = reader.readtext(plate_image)
+        results = reader.readtext(
+            plate_image, allowlist=list(_OCR_ALLOWLIST)
+        )
     except Exception as exc:  # noqa: BLE001 - one bad crop, keep going
         _log(f"EasyOCR failed: {exc}")
         return "", 0.0
@@ -330,6 +344,49 @@ def recognize_plate_text(reader, plate_image):
     except (IndexError, TypeError, ValueError):
         return "", 0.0
     return text.replace(" ", "").upper(), _clamp_confidence(recognition_confidence)
+
+
+def recognize_plate_text(reader, plate_image):
+    """Step 4: recognize plate text with EasyOCR.
+
+    Returns (plate_text, recognition_confidence) — the raw OCR
+    text of the best attempt, so the caller can log exactly what
+    was read when the plate is later skipped. The first read is
+    kept if it validates as an Indian plate at/above
+    MIN_CONFIDENCE. Otherwise the crop is upscaled 2x with
+    cv2.INTER_CUBIC and converted to grayscale and read again;
+    the best-scoring valid read wins, and if neither read is
+    valid the higher-confidence read is returned (so it is logged
+    as invalid, not silently dropped).
+    """
+    if plate_image is None or getattr(plate_image, "size", 0) == 0:
+        return "", 0.0
+    text, confidence = _ocr_once(reader, plate_image)
+    _, valid, _, _ = validate_plate_text(text)
+    if valid and confidence >= MIN_CONFIDENCE:
+        return text, confidence
+    # Retry on a bigger, cleaner crop: small / blurry crops are
+    # where EasyOCR collapses (e.g. '0' read as 'O', '2' as 'z').
+    try:
+        upscaled = cv2.resize(
+            plate_image, None, fx=2.0, fy=2.0,
+            interpolation=cv2.INTER_CUBIC,
+        )
+        if len(upscaled.shape) == 3:
+            upscaled = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY)
+    except Exception as exc:  # noqa: BLE001 - retry is best-effort
+        _log(f"OCR upscale failed: {exc}")
+        return text, confidence
+    retry_text, retry_confidence = _ocr_once(reader, upscaled)
+    _, retry_valid, _, _ = validate_plate_text(retry_text)
+    # Prefer a valid read; otherwise keep the higher-confidence one.
+    if retry_valid and not valid:
+        return retry_text, retry_confidence
+    if valid and not retry_valid:
+        return text, confidence
+    if retry_confidence > confidence:
+        return retry_text, retry_confidence
+    return text, confidence
 
 
 def calculate_detection_confidence(detection_confidence, recognition_confidence):
@@ -463,7 +520,7 @@ if __name__ == "__main__":
                 stats["plates_found"] += 1
                 try:
                     crop = frame[y1:y2, x1:x2]
-                    plate_text, recognition_confidence = recognize_plate_text(reader, crop)
+                    raw_text, recognition_confidence = recognize_plate_text(reader, crop)
                     confidence = calculate_detection_confidence(
                         detection_confidence, recognition_confidence
                     )
@@ -471,16 +528,24 @@ if __name__ == "__main__":
                     _log(f"plate in frame {stats['frames_read']} failed: {exc}")
                     continue
 
-                plate_text, valid, corrected, reason = validate_plate_text(plate_text)
+                plate_text, valid, corrected, reason = validate_plate_text(raw_text)
                 if not valid:
                     stats["skipped_invalid"] += 1
-                    _log(f"invalid plate, not sent: {plate_text or '(empty)'} ({reason})")
+                    _log(
+                        f"invalid plate, not sent: cleaned='{plate_text or '(empty)'}' "
+                        f"raw='{raw_text or '(empty)'}' ocr_conf={recognition_confidence} "
+                        f"yolo_conf={detection_confidence} ({reason})"
+                    )
                     continue
                 if corrected:
                     _log(f"plate corrected, verify manually: {plate_text}")
                 if confidence < min_confidence:
                     stats["skipped_low_confidence"] += 1
-                    _log(f"low confidence {confidence}, not sent: {plate_text}")
+                    _log(
+                        f"low confidence {confidence}, not sent: plate='{plate_text}' "
+                        f"raw='{raw_text or '(empty)'}' ocr_conf={recognition_confidence} "
+                        f"yolo_conf={detection_confidence}"
+                    )
                     continue
                 stats["valid"] += 1
 
@@ -493,7 +558,7 @@ if __name__ == "__main__":
                 )
                 result = send_detection_results(detection, endpoint)
                 if result["ok"]:
-                    mark_sent(camera_id, plate_text)
+                    mark_sent(camera_id, plate_text, dedup_seconds)
                     stats["sent"] += 1
                     _log(f"sent {plate_text} conf={confidence}")
                 else:

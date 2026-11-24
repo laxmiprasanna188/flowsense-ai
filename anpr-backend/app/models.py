@@ -22,9 +22,9 @@ class Detection(Base):
         ),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
-    event_id = Column(String, unique=True, index=True)
+    event_id = Column(String, unique=True)
 
     camera_id = Column(String, nullable=False, index=True)
 
