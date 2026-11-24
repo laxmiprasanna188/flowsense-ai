@@ -1,4 +1,3 @@
-
 cameras = [
     {
         "camera_id": "CAM01",

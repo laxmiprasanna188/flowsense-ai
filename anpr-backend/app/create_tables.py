@@ -1,7 +1,16 @@
+"""Create the database tables (once). Run as a module from anpr-backend:
+
+    python -m app.create_tables
+"""
 
 from app.database import engine, Base
-from app.models import Detection
+from app.models import Detection  # noqa: F401 - registers the model with Base
 
-Base.metadata.create_all(bind=engine)
 
-print("Database tables created successfully!")
+def main():
+    Base.metadata.create_all(bind=engine)
+    print("Database tables created successfully!")
+
+
+if __name__ == "__main__":
+    main()
