@@ -25,6 +25,13 @@
 # - API failure: the send is retried once. If it still fails, the
 #   detection is appended to failed_detections.jsonl (with the error)
 #   instead of being lost silently, and the loop continues.
+# - Settings: .env in the anpr-backend folder is now loaded at
+#   startup (real env vars still win); a bad numeric setting falls
+#   back to its default with a warning instead of crashing at
+#   import; MODEL_PATH and a video-file VIDEO_SOURCE are resolved
+#   relative to the anpr-backend folder as a fallback, so running
+#   from the repo root no longer looks for the model in the
+#   wrong place. Run from the anpr-backend folder — see PIPELINE.md.
 #
 # The API only ever receives {camera_id, plate_text, confidence}.
 # Full results are not logged here; failed sends are logged only so
@@ -43,23 +50,123 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
 import easyocr
 from ultralytics import YOLO
 
-# --- Settings (all overridable from the environment) ---
-CAMERA_ID = os.getenv("CAMERA_ID", "CAM01")
-VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "0")
+# --- Folders ---
+# _BASE_DIR is the anpr-backend folder (parent of this file's app/
+# folder). Run the pipeline from there — see PIPELINE.md.
+_BASE_DIR = Path(__file__).resolve().parent.parent
+
+# --- Load .env (fix: settings were previously ignored) ---
+# The pipeline used to read os.getenv only, so CAMERA_ID,
+# VIDEO_SOURCE, FASTAPI_URL, MODEL_PATH, FRAME_SKIP, DEDUP_SECONDS,
+# MIN_CONFIDENCE, API_TIMEOUT_SECONDS and FAILED_LOG in .env were
+# ignored unless the user exported them by hand in the terminal.
+# python-dotenv is already in requirements.txt. Real environment
+# variables take precedence over .env (override=False).
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - dotenv is in requirements.txt
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv(_BASE_DIR / ".env", override=False)
+    load_dotenv(Path.cwd() / ".env", override=False)
+
+
+def _env_int(name, default):
+    """Read an int setting safely — a bad value falls back to the
+    default with a clear warning instead of crashing at import."""
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        print(
+            f"[pipeline] warning: {name}={raw!r} is not a number, "
+            f"using default {default}",
+            file=sys.stderr,
+        )
+        return default
+
+
+def _env_float(name, default):
+    """Read a float setting safely — same fallback as _env_int."""
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(str(raw).strip())
+    except ValueError:
+        print(
+            f"[pipeline] warning: {name}={raw!r} is not a number, "
+            f"using default {default}",
+            file=sys.stderr,
+        )
+        return default
+
+
+def _resolve_relative(path_str, default_base=_BASE_DIR):
+    """Resolve a relative path, preferring the current folder, then
+    the anpr-backend folder.
+
+    This fixes MODEL_PATH (and a video-file VIDEO_SOURCE) being
+    relative to the cwd: running `python anpr-backend/app/
+    yolo_pipeline.py` from the repo root used to look for
+    models/yolov8-plate.pt in the repo root, where it is not.
+    An absolute path is used as-is.
+    """
+    if not path_str:
+        return path_str
+    path = Path(path_str)
+    if path.is_absolute():
+        return str(path)
+    cwd_path = Path.cwd() / path
+    if cwd_path.is_file():
+        return str(cwd_path)
+    base_path = default_base / path
+    if base_path.is_file():
+        return str(base_path)
+    # Not found anywhere — return the anpr-backend-relative path so
+    # the error message points at the place it should be.
+    return str(base_path)
+
+
+# --- Settings (all overridable from the environment / .env) ---
+CAMERA_ID = os.getenv("CAMERA_ID", "CAM01") or "CAM01"
+VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "0") or "0"
 FASTAPI_URL = os.getenv(
     "FASTAPI_URL", "http://localhost:8000/api/detections"
+) or "http://localhost:8000/api/detections"
+MODEL_PATH = _resolve_relative(
+    os.getenv("MODEL_PATH", "models/yolov8-plate.pt")
+    or "models/yolov8-plate.pt"
 )
-MODEL_PATH = os.getenv("MODEL_PATH", "models/yolov8-plate.pt")
-FRAME_SKIP = int(os.getenv("FRAME_SKIP", "5") or 5)
-DEDUP_SECONDS = int(os.getenv("DEDUP_SECONDS", "30") or 30)
-MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.5") or 0.5)
-API_TIMEOUT_SECONDS = float(os.getenv("API_TIMEOUT_SECONDS", "5") or 5)
-FAILED_LOG = os.getenv("FAILED_LOG", "failed_detections.jsonl")
+FRAME_SKIP = _env_int("FRAME_SKIP", 5)
+DEDUP_SECONDS = _env_int("DEDUP_SECONDS", 30)
+MIN_CONFIDENCE = _env_float("MIN_CONFIDENCE", 0.5)
+API_TIMEOUT_SECONDS = _env_float("API_TIMEOUT_SECONDS", 5)
+if API_TIMEOUT_SECONDS <= 0:
+    print(
+        "[pipeline] warning: API_TIMEOUT_SECONDS must be > 0, "
+        "using default 5",
+        file=sys.stderr,
+    )
+    API_TIMEOUT_SECONDS = 5.0
+# Failed sends are logged in the anpr-backend folder, next to
+# PIPELINE.md, so they are easy to find whatever folder the
+# pipeline was started from. An absolute FAILED_LOG is used as-is.
+_failed_log_raw = os.getenv("FAILED_LOG", "failed_detections.jsonl") or "failed_detections.jsonl"
+FAILED_LOG = (
+    _failed_log_raw
+    if Path(_failed_log_raw).is_absolute()
+    else str(_BASE_DIR / _failed_log_raw)
+)
 
 # Indian plate: 2 letters + 2 digits + 1-2 letters + 4 digits.
 INDIAN_PLATE_RE = re.compile(r"^([A-Z]{2})(\d{2})([A-Z]{1,2})(\d{4})$")
@@ -282,6 +389,15 @@ def send_detection_results(detection, endpoint):
 if __name__ == "__main__":
     camera_id = CAMERA_ID
     source = VIDEO_SOURCE
+    # A video-file source is resolved the same way as MODEL_PATH:
+    # prefer the cwd, then the anpr-backend folder. Webcam indexes
+    # ("0") and URLs (rtsp://, http://) are left alone.
+    if (
+        isinstance(source, str)
+        and not source.isdigit()
+        and "://" not in source
+    ):
+        source = _resolve_relative(source)
     endpoint = FASTAPI_URL
     frame_skip = max(1, FRAME_SKIP)
     dedup_seconds = max(0, DEDUP_SECONDS)

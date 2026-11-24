@@ -1,7 +1,8 @@
 # Buildathon — YOLOv8 + EasyOCR + OpenCV pipeline
 
 Adds camera/video plate detection to the Buildathon FastAPI backend
-(branch `feature/fastapi-postgresql-backend`). This is the group
+(branch `feature/yolo-ocr-pipeline`, based on
+`feature/fastapi-postgresql-backend`). This is the group
 project — separate from the solo ANPR City Tracker project, separate
 cameras (Bhubaneswar, not Hyderabad), and it talks to this repo's
 PostgreSQL backend, not the solo project's SQLite one.
@@ -64,6 +65,14 @@ A position-aware fix (e.g. `O` → `0` where a digit is required)
 is only applied to 10-character text, and the result is flagged
 as corrected in the log line. Anything else is skipped as invalid.
 
+## Camera validation
+
+`POST /api/detections` only accepts a known `camera_id` from
+`app/data.py` — CAM01, CAM02 or CAM03. Any other value is a
+HTTP 400 and nothing is stored. An empty `plate_text` is also a
+400. An offline camera (CAM03 KIIT Square) is a known camera,
+so it is not rejected — it just happens to be offline right now.
+
 ## Pagination
 
 `GET /api/detections` now takes `limit` (default 50, max 200) and
@@ -76,33 +85,72 @@ as corrected in the log line. Anything else is skipped as invalid.
 
 `yolov8n.pt` (COCO) has **no plate class**, so it cannot detect
 plates. You need a plate-trained YOLOv8 `.pt` file (class 0 =
-plate), placed at `models/yolov8-plate.pt`, and set `MODEL_PATH`
-to it if it is elsewhere. **The model file is NOT in the repo
-and must NOT be committed** — it is ignored by `.gitignore`.
+plate), placed at `anpr-backend/models/yolov8-plate.pt`, and set
+`MODEL_PATH` to it if it is elsewhere. **The model file is NOT in
+the repo and must NOT be committed** — it is ignored by
+`.gitignore`.
 
 ## Setup
 
+Run everything from the `anpr-backend` folder — that is where
+`requirements.txt`, `.env`, `app/` and `models/` live. The
+commands below are Windows (Cherry's machine); on macOS / Linux
+use `python3`, `source venv/bin/activate` and `cp` instead of
+`copy`.
+
 ```bash
+cd anpr-backend
 python -m venv venv
-venv\Scripts\activate          # Windows
+venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env         # edit DATABASE_URL / camera if needed
+python -m app.test_db          # check PostgreSQL connects
+python -m app.create_tables    # create the detections table (once)
 ```
+
+Do not run `python app/create_tables.py` or
+`python app/test_db.py` as scripts — they import `app.database`,
+so they only work as modules (`python -m app.create_tables`,
+`python -m app.test_db`) from the `anpr-backend` folder.
 
 `.env.example` documents every setting: `DATABASE_URL`,
 `CAMERA_ID`, `VIDEO_SOURCE`, `FASTAPI_URL`, `MODEL_PATH`,
 `FRAME_SKIP`, `DEDUP_SECONDS`, `MIN_CONFIDENCE`,
 `API_TIMEOUT_SECONDS`, `FAILED_LOG`.
 
+Settings: the backend and the pipeline both load `.env` from the
+`anpr-backend` folder at startup. A real environment variable
+always wins over `.env`. A bad numeric setting in `.env`
+(e.g. `FRAME_SKIP=abc`) falls back to its default with a warning
+instead of crashing the pipeline.
+
 ## Run it
 
-```bash
-# 1. Start the backend first (in this repo folder)
-uvicorn anpr-backend.app.main:app --reload
+Two terminals, both in the `anpr-backend` folder.
 
-# 2. Run the pipeline
-python anpr-backend/app/yolo_pipeline.py
+Terminal 1 — backend:
+
+```bash
+cd anpr-backend
+venv\Scripts\activate
+uvicorn app.main:app --reload
 ```
+
+Then open http://127.0.0.1:8000/docs — that is the backend.
+
+Terminal 2 — pipeline:
+
+```bash
+cd anpr-backend
+venv\Scripts\activate
+python app\yolo_pipeline.py
+```
+
+The pipeline reads its settings from `.env` in this folder, so
+there is nothing to export by hand. `MODEL_PATH` and a video-file
+`VIDEO_SOURCE` are resolved relative to this folder as a
+fallback, and failed sends are logged to
+`failed_detections.jsonl` in this folder.
 
 Cameras must match the backend (`app/data.py`): CAM01 Patia
 Junction (online), CAM02 Jaydev Vihar (online), CAM03 KIIT Square
@@ -117,9 +165,14 @@ Junction (online), CAM02 Jaydev Vihar (online), CAM03 KIIT Square
 
 ## Notes
 
-- Python 3.10 / 3.11. Do not upgrade NumPy to 2.x —
-  ultralytics 8.2.51 requires numpy<2.0.0.
+- Python 3.10+ (Cherry's machine is Python 3.12.15).
+  `requirements.txt` is unpinned in this repo, so no specific
+  ultralytics / NumPy version is claimed here — install from
+  `requirements.txt` and use the versions it pulls in.
 - EasyOCR downloads its models on first use (internet needed once).
 - Syntax-checked only (`python -m py_compile`) — not run here.
   Install + weights + a running backend are needed on your
   machine first.
+- The indexes in `models.py` only take effect on a fresh table
+  created by `create_tables.py`; an existing `detections` table
+  needs them added manually.

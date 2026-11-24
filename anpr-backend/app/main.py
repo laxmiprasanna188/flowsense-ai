@@ -17,6 +17,13 @@ app = FastAPI()
 # plate seen again within 30 seconds is stored only once.
 DUPLICATE_WINDOW_SECONDS = 30
 
+# Known cameras, from the hardcoded list in app/data.py.
+# POST /api/detections used to accept ANY camera_id, even one
+# that does not exist. An unknown camera is now a 400.
+# An offline camera (CAM03 KIIT Square) is NOT rejected — it is
+# a known camera, it just happens to be offline right now.
+KNOWN_CAMERA_IDS = {camera["camera_id"] for camera in cameras}
+
 
 # Database session dependency
 def get_db():
@@ -53,9 +60,27 @@ def create_detection(
     detection: DetectionCreate,
     db: Session = Depends(get_db)
 ):
+    # Validate the camera before anything is stored. The pipeline
+    # default CAM01 passes; a typo or a camera that does not exist
+    # in app/data.py is a 400, not a row in the database.
+    camera_id = detection.camera_id.strip()
+    if camera_id not in KNOWN_CAMERA_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown camera_id: {detection.camera_id!r}. "
+                f"Known cameras: {', '.join(sorted(KNOWN_CAMERA_IDS))}"
+            ),
+        )
+
     # Normalise the plate so "od02ab1234" and "OD02AB1234" dedup
     # against each other instead of being stored twice.
     plate_text = detection.plate_text.strip().upper()
+    if not plate_text:
+        raise HTTPException(
+            status_code=400,
+            detail="plate_text is required",
+        )
     now = datetime.now(timezone.utc)
 
     # Duplicate guard: the same plate from the same camera stored
@@ -65,7 +90,7 @@ def create_detection(
     existing = (
         db.query(Detection)
         .filter(
-            Detection.camera_id == detection.camera_id,
+            Detection.camera_id == camera_id,
             Detection.plate_text == plate_text,
             Detection.timestamp >= cutoff,
         )
@@ -81,7 +106,7 @@ def create_detection(
 
     new_detection = Detection(
         event_id=str(uuid4()),
-        camera_id=detection.camera_id,
+        camera_id=camera_id,
         plate_text=plate_text,
         confidence=detection.confidence,
         timestamp=now
