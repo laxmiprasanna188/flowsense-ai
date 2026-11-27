@@ -3,9 +3,15 @@ venv/
 .venv/
 __pycache__/
 *.py[cod]
-# Plate-trained YOLO weights are large and not in the repo.
-# Place your .pt file at models/yolov8-plate.pt locally.
 models/
 *.pt
-# Local log — failed sends only, never commit this.
 failed_detections.jsonl
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+runs/
+*.mp4
+*.avi
+*.mov

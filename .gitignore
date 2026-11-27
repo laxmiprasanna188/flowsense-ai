@@ -1,27 +1,27 @@
-# Python
 __pycache__/
 *.py[cod]
 *.so
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Virtual environments
 venv/
 .venv/
 env/
 ENV/
-
-# Local config and secrets — never commit
 .env
 .envrc
-
-# YOLO weights (large, not in the repo) and local pipeline logs
 *.pt
 models/
 failed_detections.jsonl
-
-# Editors / OS
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+runs/
+*.mp4
+*.avi
+*.mov
 .idea/
 .vscode/
 .DS_Store
