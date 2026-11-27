@@ -110,7 +110,7 @@ fails with `Could not find a part of the path
 '...\models\yolov8-plate.pt'` and the pipeline then says
 `YOLO model file not found`.
 
-The model is ~22.5 MB and is **not** in the repo — this download is the
+The model is Babblu alpr-plate-detector (`best.pt`), ~22.5 MB, and is **not** in the repo — this download is the
 only way to get it. The pipeline uses your laptop webcam by default
 (`VIDEO_SOURCE=0` in `.env`); to use a video file instead, set
 `VIDEO_SOURCE` in `.env` to the file path, e.g.
@@ -121,6 +121,21 @@ Hold a fake plate up to the camera (for example `OD02AB1234` or
 only sends valid plates at confidence 0.5 or higher. Check it
 stored — open http://127.0.0.1:8000/api/detections?limit=5 in your
 browser.
+
+## Use another model
+
+To use a different plate model instead of Babblu, put your `.pt`
+file at `anpr-backend/models/yolov8-plate.pt` (replace the file),
+then restart the pipeline in Terminal 2. Or keep the file anywhere
+and set this line in `.env`:
+
+```text
+MODEL_PATH=models/your-model.pt
+```
+
+Then restart the pipeline. Note: `setup.bat` always downloads the
+Babblu model again, so do not run `setup.bat` again after swapping
+— it will overwrite your file.
 
 ## Step 7 — Open the dashboard
 

@@ -4,6 +4,11 @@ A FastAPI + PostgreSQL backend that stores number-plate sightings,
 plus a YOLOv8 + EasyOCR + OpenCV pipeline that detects plates from
 a camera / video file and sends them to it.
 
+Model: Babblu alpr-plate-detector (`best.pt`, 22.5 MB) — `setup.bat`
+downloads it to `anpr-backend/models/yolov8-plate.pt`.
+Pipeline: OpenCV reads the frames, YOLOv8 finds the plates,
+EasyOCR reads the plate text.
+
 Backend: http://127.0.0.1:8000
 
 Cameras: 11 in two regions — Odisha (Bhubaneswar, CAM01–CAM03) and
