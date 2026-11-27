@@ -86,7 +86,8 @@ FAILED_LOG = (
     else str(_BASE_DIR / _failed_log_raw)
 )
 
-INDIAN_PLATE_RE = re.compile(r"^([A-Z]{2})(\d{2})([A-Z]{1,2})(\d{4})$")
+INDIAN_PLATE_RE = re.compile(r"^([A-Z]{2})(\d{2})([A-Z]{1,2})(\d{3,4})$")
+BH_PLATE_RE = re.compile(r"^(\d{2})BH(\d{4})([A-Z]{2})$")
 _DIGIT_FIX = {"O": "0", "Q": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2", "G": "6"}
 _LETTER_FIX = {"0": "O", "1": "I", "5": "S", "8": "B", "2": "Z"}
 _OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -104,40 +105,58 @@ def _clamp_confidence(value):
         return 0.0
 
 def _position_fix(cleaned):
-    """Fix misread characters in a 10-character read, by position."""
-    chars, corrected = list(cleaned), False
-    for i, ch in enumerate(chars):
-        digit_pos = i in (2, 3, 6, 7, 8, 9)
-        if digit_pos and ch in _DIGIT_FIX:
-            chars[i], corrected = _DIGIT_FIX[ch], True
-        elif not digit_pos and ch in _LETTER_FIX:
-            chars[i], corrected = _LETTER_FIX[ch], True
-    fixed = "".join(chars)
-    if corrected and INDIAN_PLATE_RE.match(fixed):
-        return fixed, True
+    """Fix misread characters in a 9- or 10-character read, by position.
+
+    10 chars: 2 letters, 2 digits, 2 letters, 4 digits.
+    9 chars: either 2 letters, 2 digits, 1 letter, 4 digits, or
+    2 letters, 2 digits, 2 letters, 3 digits (e.g. TS07AH543).
+    """
+    if len(cleaned) == 10:
+        layouts = [(2, 3, 6, 7, 8, 9)]
+    elif len(cleaned) == 9:
+        layouts = [(2, 3, 5, 6, 7, 8), (2, 3, 6, 7, 8)]
+    else:
+        return "", False
+    for digit_pos in layouts:
+        chars, corrected = list(cleaned), False
+        for i, ch in enumerate(chars):
+            if i in digit_pos and ch in _DIGIT_FIX:
+                chars[i], corrected = _DIGIT_FIX[ch], True
+            elif i not in digit_pos and ch in _LETTER_FIX:
+                chars[i], corrected = _LETTER_FIX[ch], True
+        fixed = "".join(chars)
+        if corrected and (INDIAN_PLATE_RE.match(fixed) or BH_PLATE_RE.match(fixed)):
+            return fixed, True
     return "", False
 
 def validate_plate_text(raw):
     """Validate plate text as an Indian plate.
 
-    Returns (plate, valid, corrected, reason). An 11-character read
-    may drop one leading/trailing character; a 9-character read is
-    never repaired — that would invent a missing digit.
+    Returns (plate, valid, corrected, reason). Accepts the normal
+    format (TS09EX1234, TS09E1234) and the BH format (22BH1234AB).
+    The last number may be 3 or 4 digits (TS07AH543, TG01AH543
+    as well as TS09EX1234). An 11-character read may drop one
+    leading/trailing character. A leading IND (printed on many
+    Indian plates) is stripped before checking.
     """
     if not raw:
         return "", False, False, "empty OCR result"
     cleaned = re.sub(r"[^A-Z0-9]", "", str(raw).upper())
     if not cleaned:
         return "", False, False, "empty OCR result"
-    if INDIAN_PLATE_RE.match(cleaned):
+    if cleaned.startswith("IND"):
+        cleaned = cleaned[3:]
+        if not cleaned:
+            return "", False, False, "empty OCR result"
+    if INDIAN_PLATE_RE.match(cleaned) or BH_PLATE_RE.match(cleaned):
         return cleaned, True, False, "matches Indian plate format"
-    if len(cleaned) == 10:
+    if len(cleaned) in (9, 10):
         fixed, ok = _position_fix(cleaned)
         if ok:
             return fixed, True, True, "position-aware correction applied"
     if len(cleaned) == 11:
         for candidate in (cleaned[1:], cleaned[:-1]):
-            if INDIAN_PLATE_RE.match(candidate):
+            if INDIAN_PLATE_RE.match(candidate) or BH_PLATE_RE.match(candidate):
                 return (
                     candidate,
                     True,
@@ -153,6 +172,10 @@ def validate_plate_text(raw):
                     "dropped one leading/trailing junk character "
                     "and applied position-aware correction",
                 )
+    if len(cleaned) == 12 and cleaned.startswith("IND"):
+        candidate = cleaned[3:]
+        if INDIAN_PLATE_RE.match(candidate) or BH_PLATE_RE.match(candidate):
+            return candidate, True, True, "dropped IND prefix"
     return cleaned, False, False, "does not match Indian plate format"
 
 def is_duplicate(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
@@ -246,7 +269,20 @@ def _ocr_once(reader, plate_image):
     if not results:
         return "", 0.0
     try:
-        best = max(results, key=lambda item: float(item[2]))
+        ordered = sorted(results, key=lambda item: float(item[2]), reverse=True)
+    except (IndexError, TypeError, ValueError):
+        return "", 0.0
+    for item in ordered:
+        try:
+            text = str(item[1]).replace(" ", "").upper()
+            conf = _clamp_confidence(float(item[2]))
+        except (IndexError, TypeError, ValueError):
+            continue
+        _, valid, _, _ = validate_plate_text(text)
+        if valid:
+            return text, conf
+    try:
+        best = ordered[0]
         text, recognition_confidence = str(best[1]), float(best[2])
     except (IndexError, TypeError, ValueError):
         return "", 0.0
@@ -271,6 +307,12 @@ def recognize_plate_text(reader, plate_image):
         _log(f"OCR upscale failed: {exc}")
         return text, confidence
     retry_text, retry_confidence = _ocr_once(reader, upscaled)
+    if not retry_text:
+        try:
+            grey = plate_image if len(plate_image.shape) == 2 else cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+            retry_text, retry_confidence = _ocr_once(reader, grey)
+        except Exception:
+            pass
     _, retry_valid, _, _ = validate_plate_text(retry_text)
     if retry_valid and not valid:
         return retry_text, retry_confidence

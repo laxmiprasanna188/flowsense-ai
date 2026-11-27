@@ -650,3 +650,28 @@ def update_alert_status(
         "acknowledged_at": alert.acknowledged_at,
         "resolved_at": alert.resolved_at
     }
+
+@app.delete("/api/alerts/{alert_id}")
+def delete_alert(
+    alert_id: int,
+    db: Session = Depends(get_db)
+):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found"
+        )
+    try:
+        db.delete(alert)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete alert"
+        )
+    return {
+        "message": "Alert deleted",
+        "id": alert_id
+    }

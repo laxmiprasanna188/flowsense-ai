@@ -184,6 +184,20 @@
   .cam-status{display:inline-block;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin:10px 0 0}
   .cam-label{display:block;font-size:13px;font-weight:700;color:var(--ink-2);margin-top:4px}
   .cam-select{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-weight:700;min-height:50px;margin-top:6px}
+  .cam-dropdown{position:relative;margin-top:6px}
+  .cam-dropdown-btn{width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:inherit;font-weight:700;min-height:50px;cursor:pointer;text-align:left}
+  .cam-dropdown-btn:hover{border-color:var(--teal)}
+  .cam-dropdown-btn:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .cam-dropdown-btn .cam-id{font-family:"JetBrains Mono",monospace}
+  .cam-dropdown-arrow{margin-left:auto;color:var(--ink-3);font-size:14px}
+  .cam-dropdown-list{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;list-style:none;margin:0;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-height:264px;overflow-y:auto}
+  .cam-dropdown-list li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;cursor:pointer;font-weight:600;font-size:14.5px}
+  .cam-dropdown-list li:hover{background:var(--surface-2)}
+  .cam-dropdown-list li[aria-selected="true"]{background:var(--teal-soft);color:var(--teal)}
+  .cam-dropdown-list li .cam-id{font-family:"JetBrains Mono",monospace;font-weight:700}
+  .cam-dropdown-list li .cam-off{margin-left:auto;font-size:12px;color:var(--red);font-weight:700;white-space:nowrap}
+  .cam-dropdown-list li.cam-head{font-size:11.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);cursor:default;padding:8px 12px 4px}
+  .cam-dropdown-list li.cam-head:hover{background:transparent}
   .access-label{font-size:13.5px;font-weight:700;margin:10px 0 0}
   .spotted-count{font-size:13.5px;font-weight:700;margin:12px 0 0}
   .spotted-list{list-style:none;margin:8px 0 0;padding:0}
@@ -291,8 +305,11 @@
 <section class="panel" aria-label="Camera">
         <div class="panel-head"><h2>Camera</h2><span class="count">On-demand</span></div>
         <div class="cam-preview-box">
-          <label class="cam-label" for="camSelect">Accessing camera</label>
-          <select id="camSelect" class="cam-select" aria-label="Accessing camera"></select>
+          <label class="cam-label" for="camSelectBtn">Accessing camera</label>
+          <div class="cam-dropdown" id="camDropdown">
+            <button type="button" class="cam-dropdown-btn" id="camSelectBtn" aria-haspopup="listbox" aria-expanded="false"><span class="dot on" id="camSelectDot"></span><span><span class="cam-id" id="camSelectId">HYD01</span> &middot; <span id="camSelectName">Hitech City</span></span><span class="cam-dropdown-arrow" aria-hidden="true">&#9662;</span></button>
+            <ul class="cam-dropdown-list" id="camSelectList" role="listbox" hidden></ul>
+          </div>
           <p class="access-label" id="accessingLabel">Accessing: HYD01 · Hitech City</p>
           <div class="cam-btns">
             <button type="button" class="btn" id="startCamBtn">Start Camera</button>
@@ -688,7 +705,7 @@
     document.getElementById("statAlertsNote").textContent = "";
   }
   function drawAlerts() {
-    var alerts = isLive() ? live.alerts : [];
+    var alerts = (isLive() ? live.alerts : []).filter(function (a) { return String(pick(a, ["status", "state"]) || "active").toLowerCase() !== "resolved"; });
     document.getElementById("alertsCount").textContent = alerts.length + " from API";
     var el = document.getElementById("alertList");
     if (!alerts.length) {
@@ -703,8 +720,9 @@
       var id = pick(a, ["id", "alert_id"]) || "";
       var badge = status === "resolved" ? "resolved" : (status === "acknowledged" ? "ack" : "active");
       var btn = "";
-      if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge (PATCH)</button>';
-      else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved (PATCH)</button>';
+      if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge</button>';
+      else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved</button>';
+      if (id) btn += ' <button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-del="' + esc(id) + '">Remove</button>';
       return '<li class="alert-item"><div class="a-top"><span class="a-plate">' + esc(plate) + '</span><span class="badge ' + badge + '">' + esc(status) + '</span></div>' +
         '<p class="a-reason">' + esc(reason) + '</p>' +
         (created ? '<p class="a-meta">' + esc(created) + (id ? ' · #' + esc(id) : '') + '</p>' : '') + btn + '</li>';
@@ -714,6 +732,9 @@
     });
     el.querySelectorAll("[data-alert-resolve]").forEach(function (btn) {
       btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-resolve"), "resolved"); });
+    });
+    el.querySelectorAll("[data-alert-del]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteAlert(btn.getAttribute("data-alert-del")); });
     });
     document.getElementById("alertFormHint").textContent = isLive()
       ? "Saved."
@@ -743,18 +764,46 @@
     });
   }
   function fillCamSelect() {
-    var sel = document.getElementById("camSelect");
-    if (!sel) return;
+    var list = document.getElementById("camSelectList");
+    var btn = document.getElementById("camSelectBtn");
+    if (!list || !btn) return;
     var cams = mergedCameras().slice().sort(function (a, b) {
       if (a.region === "telangana" && b.region !== "telangana") return -1;
       if (a.region !== "telangana" && b.region === "telangana") return 1;
       return a.id.localeCompare(b.id);
     });
-    if (sel.options.length === cams.length) { sel.value = state.accessCam; return; }
-    sel.innerHTML = cams.map(function (c) {
-      return '<option value="' + esc(c.id) + '">' + esc(c.id) + ' \u00b7 ' + esc(c.name) + (c.online ? "" : " \u2014 Offline") + '</option>';
-    }).join("");
-    sel.value = state.accessCam;
+    var html = "";
+    var lastRegion = "";
+    cams.forEach(function (c) {
+      if (c.region && c.region !== lastRegion) {
+        html += '<li class="cam-head" aria-hidden="true">' + esc(c.region === "telangana" ? "Hyderabad" : "Bhubaneswar") + '</li>';
+        lastRegion = c.region;
+      }
+      html += '<li role="option" tabindex="0" data-cam-id="' + esc(c.id) + '" aria-selected="' + (c.id === state.accessCam) + '"><span class="dot ' + (c.online ? "on" : "off") + '"></span><span class="cam-id">' + esc(c.id) + '</span><span>' + esc(c.name) + '</span>' + (c.online ? "" : '<span class="cam-off">Offline</span>') + '</li>';
+    });
+    list.innerHTML = html;
+    list.querySelectorAll("[data-cam-id]").forEach(function (li) {
+      li.addEventListener("click", function () { closeCamDropdown(); setAccessCamera(li.getAttribute("data-cam-id")); });
+      li.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeCamDropdown(); setAccessCamera(li.getAttribute("data-cam-id")); } });
+    });
+    var cam = camById(state.accessCam);
+    document.getElementById("camSelectId").textContent = cam.id;
+    document.getElementById("camSelectName").textContent = cam.name;
+    document.getElementById("camSelectDot").className = "dot " + (cam.online ? "on" : "off");
+  }
+  function closeCamDropdown() {
+    var list = document.getElementById("camSelectList");
+    var btn = document.getElementById("camSelectBtn");
+    if (list) list.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+  function toggleCamDropdown() {
+    var list = document.getElementById("camSelectList");
+    var btn = document.getElementById("camSelectBtn");
+    if (!list || !btn) return;
+    var open = list.hidden;
+    if (open) { fillCamSelect(); list.hidden = false; btn.setAttribute("aria-expanded", "true"); }
+    else closeCamDropdown();
   }
   function drawAccessCamera() {
     fillCamSelect();
@@ -811,6 +860,7 @@
   }
   function alertsForPlate(plate) {
     return (isLive() ? live.alerts : []).filter(function (a) {
+      if (String(pick(a, ["status", "state"]) || "active").toLowerCase() === "resolved") return false;
       return String(pick(a, ["plate_text", "plate", "plate_number"]) || "").replace(/\s+/g, "").toUpperCase() === plate;
     });
   }
@@ -822,8 +872,9 @@
     var id = pick(a, ["id", "alert_id"]) || "";
     var badge = status === "resolved" ? "resolved" : (status === "acknowledged" ? "ack" : "active");
     var btn = "";
-    if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge (PATCH)</button>';
-    else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved (PATCH)</button>';
+    if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge</button>';
+    else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved</button>';
+    if (id) btn += ' <button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-del="' + esc(id) + '">Remove</button>';
     return '<li class="alert-item"><div class="a-top"><span class="a-plate">' + esc(plate) + '</span><span class="badge ' + badge + '">' + esc(status) + '</span></div>' +
       '<p class="a-reason">' + esc(reason) + '</p>' +
       (created ? '<p class="a-meta">' + esc(created) + (id ? ' · #' + esc(id) : '') + '</p>' : '') + btn + '</li>';
@@ -845,6 +896,9 @@
     });
     box.querySelectorAll("[data-alert-resolve]").forEach(function (btn) {
       btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-resolve"), "resolved"); });
+    });
+    box.querySelectorAll("[data-alert-del]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteAlert(btn.getAttribute("data-alert-del")); });
     });
     box.querySelectorAll("[data-match-plate]").forEach(function (btn) {
       btn.addEventListener("click", function () { loadTrajectory(btn.getAttribute("data-match-plate")); });
@@ -1028,6 +1082,12 @@
       .then(function () { return connectBackend(true); })
       .catch(function () { document.getElementById("alertFormHint").textContent = "Update failed."; });
   }
+  function deleteAlert(id) {
+    if (!id) return;
+    fetchJson("/api/alerts/" + encodeURIComponent(id), { method: "DELETE" })
+      .then(function () { return connectBackend(true); })
+      .catch(function () { document.getElementById("alertFormHint").textContent = "Remove failed — restart the backend with the new main.py first."; });
+  }
 
   function startCamera() {
     var el = document.getElementById("camStatus");
@@ -1070,7 +1130,9 @@
       return;
     }
     map = L.map("map").setView(REGIONS[DEFAULT_REGION].centre, 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+    var darkMap = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var tileUrl = darkMap ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+    L.tileLayer(tileUrl, { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' }).addTo(map);
     drawMapMarkers();
   }
   function drawMapMarkers() {
@@ -1126,7 +1188,9 @@
   document.getElementById("createAlertBtn").addEventListener("click", createAlert);
   document.getElementById("startCamBtn").addEventListener("click", startCamera);
   document.getElementById("stopCamBtn").addEventListener("click", stopCamera);
-  document.getElementById("camSelect").addEventListener("change", function () { setAccessCamera(this.value); });
+  document.getElementById("camSelectBtn").addEventListener("click", function (e) { e.stopPropagation(); toggleCamDropdown(); });
+  document.addEventListener("click", function (e) { var d = document.getElementById("camDropdown"); if (d && !d.contains(e.target)) closeCamDropdown(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeCamDropdown(); });
 
   fillCamSelect();
   initMap();
