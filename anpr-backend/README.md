@@ -10,7 +10,7 @@ HYD07 Charminar, HYD08 LB Nagar (all online except HYD03).
 `GET /api/cameras` returns all 11 with `city`, `region`
 (`odisha` / `telangana`) and `status`.
 
-Backend runs on your laptop only: http://127.0.0.1:8000
+Backend: http://127.0.0.1:8000
 
 The dashboard is `dashboard/dashboard.html` at the repo root — one
 static file, no build step. Open it and tap Connect (it tries

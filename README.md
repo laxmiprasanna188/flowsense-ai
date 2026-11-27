@@ -4,7 +4,7 @@ A FastAPI + PostgreSQL backend that stores number-plate sightings,
 plus a YOLOv8 + EasyOCR + OpenCV pipeline that detects plates from
 a camera / video file and sends them to it.
 
-Runs on your laptop only. Backend: http://127.0.0.1:8000
+Backend: http://127.0.0.1:8000
 
 Cameras: 11 in two regions — Odisha (Bhubaneswar, CAM01–CAM03) and
 Telangana (Hyderabad, HYD01–HYD08). 9 online, 2 offline (CAM03 KIIT
