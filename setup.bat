@@ -43,10 +43,11 @@ python -m app.create_tables
 if not exist models (
   mkdir models
 )
-if not exist models\yolov8-plate.pt (
-  echo Download the plate model - about 6 MB.
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
+if exist models\yolov8-plate.pt (
+  del models\yolov8-plate.pt
 )
+echo Download the plate model - about 22.5 MB.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/Babblu2821/alpr-plate-detector/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
 echo.
 echo Setup is done.
 echo Next: double-click run.bat to start the backend, then open dashboard\dashboard.html

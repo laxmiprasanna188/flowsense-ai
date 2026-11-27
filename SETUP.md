@@ -100,7 +100,7 @@ the backend, so do not paste these commands there. Then paste:
 cd D:\flowsense-ai\anpr-backend
 .\venv\Scripts\Activate.ps1
 New-Item -ItemType Directory -Force models
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/Babblu2821/alpr-plate-detector/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
 python app\yolo_pipeline.py
 ```
 
@@ -110,7 +110,7 @@ fails with `Could not find a part of the path
 '...\models\yolov8-plate.pt'` and the pipeline then says
 `YOLO model file not found`.
 
-The model is ~6 MB and is **not** in the repo — this download is the
+The model is ~22.5 MB and is **not** in the repo — this download is the
 only way to get it. The pipeline uses your laptop webcam by default
 (`VIDEO_SOURCE=0` in `.env`); to use a video file instead, set
 `VIDEO_SOURCE` in `.env` to the file path, e.g.
