@@ -380,10 +380,9 @@
   </section>
 
   <section class="panel" aria-label="Camera map" style="margin-bottom:16px">
-    <div class="panel-head"><h2>Camera map</h2><span class="count" id="mapCount">11 cameras · tap a pin to filter</span></div>
+    <div class="panel-head"><h2>Camera map</h2><span class="count" id="mapCount">11 cameras</span></div>
     <div class="map-box">
       <div id="map"></div>
-      <p class="map-note">Tap a pin to filter.</p>
       <div style="margin-top:10px"><button type="button" class="btn secondary" id="showAllBtn">Show all cameras</button></div>
     </div>
   </section>
@@ -1150,12 +1149,12 @@
         markers[c.id].setIcon(icon);
       } else {
         var m = L.marker([c.lat, c.lng], { icon: icon }).addTo(map);
-        m.bindPopup("<b>" + esc(c.name) + "</b><br>" + esc(c.id) + " · " + (c.online ? "Online" : "Offline") + "<br>Tap the pin to filter the feed to this camera.");
+        m.bindPopup("<b>" + esc(c.name) + "</b><br>" + esc(c.id) + " · " + (c.online ? "Online" : "Offline"));
         m.on("click", function () { setCameraFilter(c.id); });
         markers[c.id] = m;
       }
     });
-    document.getElementById("mapCount").textContent = mergedCameras().length + " cameras · tap a pin to filter" + (state.cam !== "ALL" ? " · filtered to " + state.cam : "");
+    document.getElementById("mapCount").textContent = state.cam !== "ALL" ? state.cam : mergedCameras().length + " cameras";
   }
   function setCameraFilter(id) {
     state.cam = id;
