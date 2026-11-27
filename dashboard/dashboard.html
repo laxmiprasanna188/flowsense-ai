@@ -99,6 +99,18 @@
   .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
   @media (min-width:760px){.stats{grid-template-columns:repeat(4,1fr);gap:14px}}
   .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+  .charts{display:grid;gap:18px}
+  @media (min-width:760px){.charts{grid-template-columns:1fr 1fr}}
+  .chart-block h3{font-size:14px;margin:0 0 10px}
+  .bar-row{display:grid;grid-template-columns:64px 1fr 30px;gap:8px;align-items:center;font-size:12.5px;padding:3px 0}
+  .bar-row.wide{grid-template-columns:150px 1fr 30px}
+  .bar-label{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden}
+  .bar-fill{height:100%;background:var(--teal);border-radius:6px}
+  .bar-val{font-weight:700;text-align:right}
+  .chart-empty{margin:0;color:var(--ink-2);font-size:13.5px}
+  .status-line{font-size:13.5px;padding:4px 0;color:var(--ink-2)}
+  .status-line b{color:var(--ink)}
   .stat .label{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px}
   .stat .value{font-size:32px;font-weight:800;letter-spacing:-.02em;line-height:1.05;margin:0}
   .stat .value small{font-size:16px;font-weight:700;color:var(--ink-3)}
@@ -363,6 +375,16 @@
       <p class="note" id="statTodayNote"></p>
     </div>
     <div class="stat">
+      <p class="label">Total vehicles detected</p>
+      <p class="value" id="statVehicles">0</p>
+      <p class="note">All sightings</p>
+    </div>
+    <div class="stat">
+      <p class="label">Plates recognized</p>
+      <p class="value" id="statPlates">0</p>
+      <p class="note">Unique plates</p>
+    </div>
+    <div class="stat">
       <p class="label">Avg. confidence</p>
       <p class="value" id="statAvg">—</p>
       <p class="note"></p>
@@ -376,6 +398,28 @@
       <p class="label">Active alerts</p>
       <p class="value" id="statAlerts">0</p>
       <p class="note" id="statAlertsNote"></p>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Statistics and charts" style="margin-bottom:16px">
+    <div class="panel-head"><h2>Statistics</h2><span class="count" id="statsNote">Today</span></div>
+    <div class="charts">
+      <div class="chart-block">
+        <h3>Detections per hour — today</h3>
+        <div class="bars" id="hourlyChart"></div>
+      </div>
+      <div class="chart-block">
+        <h3>Detections per day — last 7 days</h3>
+        <div class="bars" id="dailyChart"></div>
+      </div>
+      <div class="chart-block">
+        <h3>Detections per camera</h3>
+        <div class="bars" id="cameraChart"></div>
+      </div>
+      <div class="chart-block">
+        <h3>Detection status</h3>
+        <div class="bars" id="statusChart"></div>
+      </div>
     </div>
   </section>
 
@@ -415,7 +459,7 @@
     <section class="panel" aria-label="Detection feed">
       <div class="panel-head">
         <h2>Detection feed</h2>
-        <span class="count" id="feedCount">Showing 0 of 0</span>
+        <span style="display:flex;gap:8px;align-items:center"><span class="count" id="feedCount">Showing 0 of 0</span><button type="button" class="btn secondary" id="clearAllBtn" style="min-height:36px;padding:6px 12px">Remove all</button></span>
       </div>
       <ul class="rows" id="rows"></ul>
       <div class="empty" id="emptyState">
@@ -467,7 +511,7 @@
   var state = { region: DEFAULT_REGION, cam: "HYD01", query: "", accessCam: "HYD01" };
   var live = {
     connected: false, connecting: false, lastFetch: null,
-    summary: null,
+    summary: null, hourly: null, daily: null,
     detections: [], cameras: null, alerts: [],
     endpointStatus: {},
     pipelineControl: false, pipelineRunning: false
@@ -476,6 +520,9 @@
   var map = null, markers = {};
 
   function isLive() { return live.connected; }
+  function isoDate(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
@@ -528,17 +575,29 @@
   function regionCameras() {
     return mergedCameras().filter(function (c) { return c.region === state.region; });
   }
-  function allDetections() { return isLive() ? live.detections : []; }
+  var MIN_CONF = 0.77;
+  function allDetections() { return isLive() ? live.detections.filter(function (d) { return d.confidence >= MIN_CONF; }) : []; }
   function regionDetections() {
     return allDetections().filter(function (d) { return regionOfDetection(d) === state.region; });
   }
+  function regionDetectionsAll() {
+    return (isLive() ? live.detections : []).filter(function (d) { return regionOfDetection(d) === state.region; });
+  }
+  function dedupePlates(dets) {
+    var seen = {};
+    return dets.filter(function (d) {
+      if (seen[d.plate_text]) return false;
+      seen[d.plate_text] = true;
+      return true;
+    });
+  }
   function filtered() {
     var q = state.query.replace(/\s+/g, "").toUpperCase();
-    return regionDetections().filter(function (d) {
+    return dedupePlates(regionDetections().filter(function (d) {
       if (state.cam !== "ALL" && d.camera_id !== state.cam) return false;
       if (q && d.plate_text.indexOf(q) === -1) return false;
       return true;
-    });
+    }));
   }
 
   function parseTime(ts) {
@@ -642,8 +701,9 @@
           '<div><dt>Event ID</dt><dd class="mono">' + esc(d.event_id) + '</dd></div>' +
           '<div><dt>Timestamp</dt><dd>' + esc(d.timestampLabel) + '</dd></div>' +
           '<div><dt>Camera</dt><dd>' + esc(d.camera_id) + ' — ' + esc(cam.area || cam.name) + '</dd></div>' +
-          '<div><dt>Confidence</dt><dd>' + Number(d.confidence).toFixed(2) + ' (threshold 0.50)</dd></div>' +
+          '<div><dt>Confidence</dt><dd>' + Number(d.confidence).toFixed(2) + ' (threshold 0.77)</dd></div>' +
           '<div><dt>Trajectory</dt><dd><a href="#" class="traj-link" data-plate="' + esc(d.plate_text) + '">Track this plate →</a></dd></div>' +
+          '<div><dt>Remove</dt><dd><button type="button" class="btn secondary" data-det-del="' + esc(d.plate_text) + '">Remove this plate</button></dd></div>' +
         '</dl></div>' +
       '</li>';
     }).join("");
@@ -659,6 +719,9 @@
     });
     rowsEl.querySelectorAll(".traj-link").forEach(function (a) {
       a.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); loadTrajectory(a.getAttribute("data-plate")); });
+    });
+    rowsEl.querySelectorAll("[data-det-del]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); deleteDetection(btn.getAttribute("data-det-del")); });
     });
   }
   function drawCameras() {
@@ -702,6 +765,51 @@
     var activeAlerts = live.alerts.filter(function (a) { return String(pick(a, ["status", "state"]) || "active").toLowerCase() === "active"; }).length;
     document.getElementById("statAlerts").textContent = isLive() ? activeAlerts : 0;
     document.getElementById("statAlertsNote").textContent = "";
+    var all = regionDetectionsAll();
+    document.getElementById("statVehicles").textContent = isLive() ? all.length : 0;
+    document.getElementById("statPlates").textContent = isLive() ? dedupePlates(all).length : 0;
+  }
+  function barChart(el, rows, wide) {
+    if (!rows.length) { el.innerHTML = '<p class="chart-empty">No data yet.</p>'; return; }
+    var max = 0;
+    rows.forEach(function (r) { if (r.count > max) max = r.count; });
+    el.innerHTML = rows.map(function (r) {
+      var w = max ? Math.round(r.count / max * 100) : 0;
+      return '<div class="bar-row' + (wide ? ' wide' : '') + '"><span class="bar-label">' + esc(r.label) + '</span><div class="bar-track"><div class="bar-fill" style="width:' + w + '%"></div></div><span class="bar-val">' + r.count + '</span></div>';
+    }).join("");
+  }
+  function drawCharts() {
+    document.getElementById("statsNote").textContent = isLive() ? "Updated " + (live.lastFetch || "") : "Offline";
+    var hEl = document.getElementById("hourlyChart");
+    var dEl = document.getElementById("dailyChart");
+    var cEl = document.getElementById("cameraChart");
+    var sEl = document.getElementById("statusChart");
+    if (!isLive()) {
+      var msg = '<p class="chart-empty">Backend not running — double-click run.bat.</p>';
+      hEl.innerHTML = msg; dEl.innerHTML = msg; cEl.innerHTML = msg; sEl.innerHTML = msg;
+      return;
+    }
+    var hourly = (live.hourly && live.hourly.hourly_traffic) || [];
+    barChart(hEl, hourly.map(function (r) { return { label: String(r.hour), count: Number(r.detection_count) || 0 }; }));
+    var daily = (live.daily && live.daily.daily_traffic) || [];
+    barChart(dEl, daily.map(function (r) { return { label: String(r.date).slice(5), count: Number(r.detection_count) || 0 }; }));
+    var regionIds = {};
+    regionCameras().forEach(function (c) { regionIds[c.id] = true; });
+    var counts = {};
+    var cw = (live.summary && live.summary.camera_wise_detections) || [];
+    cw.forEach(function (c) { if (regionIds[c.camera_id]) counts[c.camera_id] = Number(c.detection_count) || 0; });
+    if (!cw.length) regionDetectionsAll().forEach(function (d) { counts[d.camera_id] = (counts[d.camera_id] || 0) + 1; });
+    var camRows = regionCameras().map(function (c) { return { label: c.name + " (" + c.id + ")", count: counts[c.id] || 0 }; });
+    barChart(cEl, camRows, true);
+    var cams = regionCameras();
+    var online = cams.filter(function (c) { return c.online; });
+    var detecting = cams.filter(function (c) { return (counts[c.id] || 0) > 0; });
+    var offlineNames = cams.filter(function (c) { return !c.online; }).map(function (c) { return c.name; });
+    sEl.innerHTML =
+      '<div class="status-line">Cameras online: <b>' + online.length + ' of ' + cams.length + '</b></div>' +
+      '<div class="status-line">Cameras that detected vehicles: <b>' + detecting.length + ' of ' + cams.length + '</b></div>' +
+      '<div class="status-line">Offline cameras: <b>' + (offlineNames.length ? esc(offlineNames.join(", ")) : "None") + '</b></div>' +
+      '<div class="status-line">Vehicles detected on online cameras: <b>' + online.reduce(function (sum, c) { return sum + (counts[c.id] || 0); }, 0) + '</b></div>';
   }
   function drawAlerts() {
     var alerts = (isLive() ? live.alerts : []).filter(function (a) { return String(pick(a, ["status", "state"]) || "active").toLowerCase() !== "resolved"; });
@@ -830,7 +938,7 @@
     if (map) map.setView(REGIONS[state.region].centre, 11);
   }
   function drawSpotted() {
-    var list = allDetections().filter(function (d) { return d.camera_id === state.accessCam; });
+    var list = dedupePlates(allDetections().filter(function (d) { return d.camera_id === state.accessCam; }));
     var countEl = document.getElementById("camSpottedCount");
     if (countEl) countEl.textContent = "Vehicles spotted on this camera: " + list.length;
     var el = document.getElementById("camSpottedList");
@@ -839,20 +947,35 @@
     if (!list.length) { el.innerHTML = '<li>No vehicles spotted on this camera yet.</li>'; return; }
     el.innerHTML = list.slice(0, 10).map(function (d) {
       var when = d.date && d.date !== "—" ? "spotted at " + d.time + ", " + d.date : "spotted at " + d.time;
-      return '<li><span><span class="plate">' + esc(d.plate_text) + '</span> \u00b7 ' + esc(when) + ' \u00b7 ' + pct(d.confidence) + '</span><button type="button" class="btn secondary" data-spotted-alert="' + esc(d.plate_text) + '">Alert</button></li>';
+      return '<li><span><span class="plate">' + esc(d.plate_text) + '</span> \u00b7 ' + esc(when) + ' \u00b7 ' + pct(d.confidence) + '</span><span style="display:flex;gap:6px"><button type="button" class="btn secondary" data-spotted-alert="' + esc(d.plate_text) + '">Alert</button><button type="button" class="btn secondary" data-spotted-del="' + esc(d.plate_text) + '">Remove</button></span></li>';
     }).join("");
     el.querySelectorAll("[data-spotted-alert]").forEach(function (btn) {
       btn.addEventListener("click", function () { createAlertForPlate(btn.getAttribute("data-spotted-alert")); });
+    });
+    el.querySelectorAll("[data-spotted-del]").forEach(function (btn) {
+      btn.addEventListener("click", function () { deleteDetection(btn.getAttribute("data-spotted-del")); });
     });
   }
   function createAlertForPlate(plate) {
     if (!isLive()) { document.getElementById("alertFormHint").textContent = "Backend not running \u2014 double-click run.bat first."; return; }
     fetchJson("/api/alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alert_type: "watchlist", message: "Watchlist \u2014 spotted on " + state.accessCam, plate_text: plate }) })
-      .then(function () { return connectBackend(true); })
+      .then(function () { deleteDetection(plate); document.getElementById("alertFormHint").textContent = "Alert created — plate moved to Alerts."; })
       .catch(function () { document.getElementById("alertFormHint").textContent = "Create failed."; });
   }
+  function deleteDetection(plate) {
+    if (!isLive()) return;
+    fetchJson("/api/detections/plate/" + encodeURIComponent(plate), { method: "DELETE" })
+      .then(function () { return connectBackend(true); })
+      .catch(function () { });
+  }
+  function deleteAllDetections() {
+    if (!isLive()) return;
+    fetchJson("/api/detections", { method: "DELETE" })
+      .then(function () { return connectBackend(true); })
+      .catch(function () { });
+  }
   function drawAll() {
-    drawStatus(); drawRegionMeta(); drawCamPills(); drawStats(); drawRows();
+    drawStatus(); drawRegionMeta(); drawCamPills(); drawStats(); drawCharts(); drawRows();
     drawCameras(); drawAlerts(); drawTrackChips(); drawMapMarkers(); drawAccessCamera(); drawSpotted();
   }
   function stepsForPlate(plate, dets) {
@@ -1019,12 +1142,16 @@
   }
   function connectBackend(silent) {
     live.connecting = true; drawStatus();
+    var today = new Date();
+    var weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
     var jobs = [
       ["summary", "/api/analytics/summary"],
       ["cameras", "/api/analytics/cameras"],
       ["camlist", "/api/cameras"],
       ["detections", "/api/detections?limit=200&offset=0"],
-      ["alerts", "/api/alerts"]
+      ["alerts", "/api/alerts"],
+      ["hourly", "/api/analytics/hourly"],
+      ["daily", "/api/analytics/daily?start_date=" + isoDate(weekAgo) + "&end_date=" + isoDate(today)]
     ];
     var results = {};
     return Promise.all(jobs.map(function (j) {
@@ -1033,7 +1160,7 @@
       var gotCore = live.endpointStatus.summary || live.endpointStatus.detections;
       live.connecting = false;
       if (!gotCore) {
-        live.connected = false; live.summary = null;
+        live.connected = false; live.summary = null; live.hourly = null; live.daily = null;
         live.detections = []; live.cameras = null; live.alerts = [];
         live.pipelineControl = false; live.pipelineRunning = false;
         updateCamStatus();
@@ -1054,6 +1181,8 @@
       }
       if (results.detections) live.detections = asArray(results.detections).map(normalizeDetection);
       if (results.alerts) live.alerts = asArray(results.alerts, ["alerts"]);
+      if (results.hourly) live.hourly = results.hourly;
+      if (results.daily) live.daily = results.daily;
       return fetchJson("/api/pipeline/status").then(function (data) {
         live.pipelineControl = true;
         live.pipelineRunning = !!data.running;
@@ -1187,6 +1316,7 @@
     document.getElementById("localMsg").textContent = "Double-click stop.bat.";
   });
   document.getElementById("showAllBtn").addEventListener("click", function () { setCameraFilter("ALL"); });
+  document.getElementById("clearAllBtn").addEventListener("click", function () { deleteAllDetections(); });
   document.getElementById("trajBtn").addEventListener("click", function () { loadTrajectory(); });
   document.getElementById("trajInput").addEventListener("keydown", function (e) { if (e.key === "Enter") loadTrajectory(); });
   document.getElementById("createAlertBtn").addEventListener("click", createAlert);

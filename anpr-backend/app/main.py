@@ -165,6 +165,84 @@ def get_detection(
         "data": detection_to_dict(detection)
     }
 
+@app.delete("/api/detections")
+def delete_all_detections(
+    db: Session = Depends(get_db)
+):
+    try:
+        deleted = db.query(Detection).delete()
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete detections"
+        )
+    return {
+        "message": "All detections deleted",
+        "deleted": deleted
+    }
+
+@app.delete("/api/detections/plate/{plate_text}")
+def delete_detections_by_plate(
+    plate_text: str,
+    db: Session = Depends(get_db)
+):
+    plate = plate_text.strip().upper()
+    existing = db.query(Detection).filter(
+        Detection.plate_text == plate
+    ).count()
+    if not existing:
+        raise HTTPException(
+            status_code=404,
+            detail="Detection not found"
+        )
+    try:
+        deleted = db.query(Detection).filter(
+            Detection.plate_text == plate
+        ).delete()
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete detections"
+        )
+    return {
+        "message": "Detections deleted",
+        "plate_text": plate,
+        "deleted": deleted
+    }
+
+@app.delete("/api/detections/{event_id}")
+def delete_detection(
+    event_id: str,
+    db: Session = Depends(get_db)
+):
+    detection = db.query(Detection).filter(
+        Detection.event_id == event_id
+    ).first()
+
+    if detection is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Detection not found"
+        )
+
+    try:
+        db.delete(detection)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete detection"
+        )
+    return {
+        "message": "Detection deleted",
+        "event_id": event_id
+    }
+
 @app.get("/api/cameras")
 def get_cameras():
     return {
