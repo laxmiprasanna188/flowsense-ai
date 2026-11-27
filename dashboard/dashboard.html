@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root{
     --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eef0ec;
@@ -181,6 +182,14 @@
   .cam-btns{display:flex;gap:8px;margin-top:0}
   .cam-btns .btn{flex:1;min-height:52px}
   .cam-status{display:inline-block;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin:10px 0 0}
+  .cam-label{display:block;font-size:13px;font-weight:700;color:var(--ink-2);margin-top:4px}
+  .cam-select{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-weight:700;min-height:50px;margin-top:6px}
+  .access-label{font-size:13.5px;font-weight:700;margin:10px 0 0}
+  .spotted-count{font-size:13.5px;font-weight:700;margin:12px 0 0}
+  .spotted-list{list-style:none;margin:8px 0 0;padding:0}
+  .spotted-list li{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:13.5px}
+  .spotted-list .plate{font-family:"JetBrains Mono",monospace;font-weight:700}
+  .spotted-list .btn{min-height:36px;padding:6px 12px;font-size:13px}
 
   .btn{border:1px solid var(--line);background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 16px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;min-height:44px}
   .btn.secondary{background:var(--surface);color:var(--ink)}
@@ -282,11 +291,17 @@
 <section class="panel" aria-label="Camera">
         <div class="panel-head"><h2>Camera</h2><span class="count">On-demand</span></div>
         <div class="cam-preview-box">
+          <label class="cam-label" for="camSelect">Accessing camera</label>
+          <select id="camSelect" class="cam-select" aria-label="Accessing camera"></select>
+          <p class="access-label" id="accessingLabel">Accessing: HYD01 · Hitech City</p>
           <div class="cam-btns">
             <button type="button" class="btn" id="startCamBtn">Start Camera</button>
             <button type="button" class="btn secondary" id="stopCamBtn">Stop Camera</button>
           </div>
           <p class="cam-status" id="camStatus">Camera stopped.</p>
+          <p class="spotted-count" id="camSpottedCount">Vehicles spotted on this camera: 0</p>
+          <ul class="spotted-list" id="camSpottedList"></ul>
+          <p class="map-note" id="camSpottedHint">Pick a camera, tap Start Camera here, then hold a plate up. Spotted vehicles for this camera show here. Tap Alert on a vehicle to make an alert for it, and Stop Camera here to stop it.</p>
         </div>
       </section>
 <section class="panel" aria-label="Alerts">
@@ -411,6 +426,7 @@
   </footer>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>if (typeof L === "undefined") { var _s = document.createElement("script"); _s.src = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"; document.head.appendChild(_s); }</script>
 <script>
   var API_BASE = "http://localhost:8000";
   var DEFAULT_REGION = "telangana";
@@ -433,7 +449,7 @@
     odisha: { label: "Odisha — Bhubaneswar", city: "Bhubaneswar", sub: "Showing OD plates from Patia, Jaydev Vihar & KIIT Square.", prefix: "OD", centre: [20.30, 85.83] }
   };
 
-  var state = { region: DEFAULT_REGION, cam: "ALL", query: "" };
+  var state = { region: DEFAULT_REGION, cam: "HYD01", query: "", accessCam: "HYD01" };
   var live = {
     connected: false, connecting: false, lastFetch: null,
     summary: null,
@@ -726,9 +742,69 @@
       btn.addEventListener("click", function () { loadTrajectory(btn.getAttribute("data-track-chip")); });
     });
   }
+  function fillCamSelect() {
+    var sel = document.getElementById("camSelect");
+    if (!sel) return;
+    var cams = mergedCameras().slice().sort(function (a, b) {
+      if (a.region === "telangana" && b.region !== "telangana") return -1;
+      if (a.region !== "telangana" && b.region === "telangana") return 1;
+      return a.id.localeCompare(b.id);
+    });
+    if (sel.options.length === cams.length) { sel.value = state.accessCam; return; }
+    sel.innerHTML = cams.map(function (c) {
+      return '<option value="' + esc(c.id) + '">' + esc(c.id) + ' \u00b7 ' + esc(c.name) + (c.online ? "" : " \u2014 Offline") + '</option>';
+    }).join("");
+    sel.value = state.accessCam;
+  }
+  function drawAccessCamera() {
+    fillCamSelect();
+    var cam = camById(state.accessCam);
+    var label = document.getElementById("accessingLabel");
+    if (label) label.textContent = "Accessing: " + cam.id + " \u00b7 " + cam.name + (cam.online ? "" : " \u2014 Offline");
+    updateCamStatus();
+  }
+  function updateCamStatus() {
+    var el = document.getElementById("camStatus");
+    if (!el) return;
+    var cam = camById(state.accessCam);
+    var name = cam.id + " \u00b7 " + cam.name;
+    if (live.pipelineRunning) el.textContent = "Camera running \u2014 " + name;
+    else if (!isLive()) el.textContent = "Backend not running \u2014 " + name;
+    else el.textContent = "Camera stopped \u2014 " + name;
+  }
+  function setAccessCamera(id) {
+    var cam = camById(id);
+    if (!cam || !cam.id) return;
+    state.accessCam = cam.id;
+    state.cam = cam.id;
+    if (cam.region) state.region = cam.region;
+    drawAll();
+    if (map) map.setView(REGIONS[state.region].centre, 11);
+  }
+  function drawSpotted() {
+    var list = allDetections().filter(function (d) { return d.camera_id === state.accessCam; });
+    var countEl = document.getElementById("camSpottedCount");
+    if (countEl) countEl.textContent = "Vehicles spotted on this camera: " + list.length;
+    var el = document.getElementById("camSpottedList");
+    if (!el) return;
+    if (!isLive()) { el.innerHTML = '<li>Backend not running \u2014 double-click run.bat.</li>'; return; }
+    if (!list.length) { el.innerHTML = '<li>No vehicles spotted on this camera yet.</li>'; return; }
+    el.innerHTML = list.slice(0, 10).map(function (d) {
+      return '<li><span><span class="plate">' + esc(d.plate_text) + '</span> \u00b7 ' + esc(d.time) + ' \u00b7 ' + pct(d.confidence) + '</span><button type="button" class="btn secondary" data-spotted-alert="' + esc(d.plate_text) + '">Alert</button></li>';
+    }).join("");
+    el.querySelectorAll("[data-spotted-alert]").forEach(function (btn) {
+      btn.addEventListener("click", function () { createAlertForPlate(btn.getAttribute("data-spotted-alert")); });
+    });
+  }
+  function createAlertForPlate(plate) {
+    if (!isLive()) { document.getElementById("alertFormHint").textContent = "Backend not running \u2014 double-click run.bat first."; return; }
+    fetchJson("/api/alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alert_type: "watchlist", message: "Watchlist \u2014 spotted on " + state.accessCam, plate_text: plate }) })
+      .then(function () { return connectBackend(true); })
+      .catch(function () { document.getElementById("alertFormHint").textContent = "Create failed."; });
+  }
   function drawAll() {
     drawStatus(); drawRegionMeta(); drawCamPills(); drawStats(); drawRows();
-    drawCameras(); drawAlerts(); drawTrackChips(); drawMapMarkers();
+    drawCameras(); drawAlerts(); drawTrackChips(); drawMapMarkers(); drawAccessCamera(); drawSpotted();
   }
   function stepsForPlate(plate, dets) {
     return dets.filter(function (d) { return d.plate_text === plate; }).slice().sort(function (a, b) { return a.time.localeCompare(b.time); });
@@ -924,7 +1000,6 @@
       }
       if (results.detections) live.detections = asArray(results.detections).map(normalizeDetection);
       if (results.alerts) live.alerts = asArray(results.alerts, ["alerts"]);
-      state.cam = "ALL";
       return fetchJson("/api/pipeline/status").then(function (data) {
         live.pipelineControl = true;
         live.pipelineRunning = !!data.running;
@@ -958,9 +1033,11 @@
     var el = document.getElementById("camStatus");
     if (!isLive()) { el.textContent = "Backend not running — double-click run.bat."; return; }
     el.textContent = "Starting…";
-    fetchJson("/api/pipeline/start", { method: "POST" }).then(function (data) {
+    fetchJson("/api/pipeline/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ camera_id: state.accessCam }) }).then(function (data) {
       live.pipelineRunning = !!(data && data.running);
-      el.textContent = live.pipelineRunning ? "Camera running" : "Did not start.";
+      if (data && data.camera_id && data.camera_id !== state.accessCam) { el.textContent = "Already running on " + data.camera_id + " \u2014 stop it first to change camera."; }
+      else { el.textContent = live.pipelineRunning ? "Camera running \u2014 " + state.accessCam + " \u00b7 " + camById(state.accessCam).name : "Did not start."; }
+      updateCamStatus();
     }).catch(function (e) {
       live.pipelineRunning = false;
       el.textContent = String(e.message).indexOf("404") !== -1 ? "Add pipeline_control.py first." : "Backend not running — double-click run.bat.";
@@ -972,13 +1049,24 @@
     fetchJson("/api/pipeline/stop", { method: "POST" }).then(function (data) {
       live.pipelineRunning = !!(data && data.running);
       el.textContent = live.pipelineRunning ? "Still running." : "Camera stopped.";
+      updateCamStatus();
     }).catch(function () { el.textContent = "Camera stopped."; });
   }
 
   function initMap() {
     var el = document.getElementById("map");
     if (typeof L === "undefined") {
-      el.innerHTML = '<p style="padding:16px">Map could not load.</p>';
+      if (!window._leafletRetry) {
+        window._leafletRetry = true;
+        el.innerHTML = '<p style="padding:16px">Map loading\u2026 if this stays, check internet and refresh.</p>';
+        var s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js";
+        s.onload = function () { initMap(); };
+        s.onerror = function () { el.innerHTML = '<p style="padding:16px">Map could not load \u2014 Leaflet did not load. Check internet, then refresh.</p>'; };
+        document.head.appendChild(s);
+        return;
+      }
+      el.innerHTML = '<p style="padding:16px">Map could not load \u2014 Leaflet did not load. Check internet, then refresh.</p>';
       return;
     }
     map = L.map("map").setView(REGIONS[DEFAULT_REGION].centre, 11);
@@ -1007,12 +1095,15 @@
     if (id !== "ALL") {
       var cam = camById(id);
       if (cam.region) state.region = cam.region;
+      state.accessCam = id;
     }
-    drawCamPills(); drawRows(); drawCameras(); drawRegionMeta(); drawStatus(); drawMapMarkers();
+    drawCamPills(); drawRows(); drawCameras(); drawRegionMeta(); drawStatus(); drawMapMarkers(); drawAccessCamera(); drawSpotted();
   }
   function setRegion(region) {
-    state.region = region; state.cam = "ALL"; state.query = "";
+    state.region = region; state.query = "";
     document.getElementById("searchInput").value = "";
+    var first = mergedCameras().filter(function (c) { return c.region === region; })[0];
+    if (first) { state.accessCam = first.id; state.cam = first.id; }
     drawAll();
     if (map) map.setView(REGIONS[region].centre, 11);
   }
@@ -1035,7 +1126,9 @@
   document.getElementById("createAlertBtn").addEventListener("click", createAlert);
   document.getElementById("startCamBtn").addEventListener("click", startCamera);
   document.getElementById("stopCamBtn").addEventListener("click", stopCamera);
+  document.getElementById("camSelect").addEventListener("change", function () { setAccessCamera(this.value); });
 
+  fillCamSelect();
   initMap();
   drawAll();
   connectBackend(true);
