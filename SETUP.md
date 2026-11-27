@@ -2,6 +2,12 @@
 
 Runs on your laptop only.
 
+One click: double-click `setup.bat` in the repo folder. It does
+Steps 2–6 for you — database, venv + install, `.env`, tables, and
+the plate model. You only type the Postgres password when it asks
+for it. The 7 steps below are the same work, by hand, if you ever
+need them.
+
 Paste every command as-is, unless a step says **type** — pasting a
 password does not work, the characters are hidden while you type.
 

@@ -20,11 +20,14 @@ Square, HYD03 Kukatpally).
   stats, "Track any plate" (track + alerts together). Opens against
   the laptop backend at `http://localhost:8000`.
 - `run.bat` — starts the backend only. `stop.bat` — stops it.
+- `setup.bat` — one-click install: database, venv + install,
+  `.env`, tables, and the plate model. Double-click it once.
 
 ## Quick start
 
-First time on a new laptop? Follow [`SETUP.md`](SETUP.md) — 7 steps,
-Windows / VS Code. Already set up? Just the 2-command rerun:
+First time on a new laptop? Double-click `setup.bat`, or follow
+[`SETUP.md`](SETUP.md) — 7 steps, Windows / VS Code. Already set
+up? Just the 2-command rerun:
 
 ```powershell
 # Terminal 1 — backend (from anpr-backend)
