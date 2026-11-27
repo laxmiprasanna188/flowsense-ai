@@ -106,7 +106,7 @@ the backend, so do not paste these commands there. Then paste:
 cd D:\flowsense-ai\anpr-backend
 .\venv\Scripts\Activate.ps1
 New-Item -ItemType Directory -Force models
-Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
 python app\yolo_pipeline.py
 ```
 
@@ -167,6 +167,7 @@ running. Stop a terminal with `Ctrl + C`.
   — the `models` folder does not exist yet. In Terminal 2, run
   `New-Item -ItemType Directory -Force models` first (Step 6),
   then run the `Invoke-WebRequest` line again.
+- `profile.ps1 cannot be loaded because running scripts is disabled` — PowerShell is blocking scripts. Paste once in a new terminal: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force`, close and reopen the terminal, then continue. `setup.bat` and Step 6 now also skip the profile, so the model download works even before that fix.
 - `yolov8n.pt has no plate class` — the model file is wrong. You
   need the `best.pt` from Step 6 at `models\yolov8-plate.pt`.
 - Dashboard says "Couldn't reach" the backend — the backend is not

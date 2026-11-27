@@ -46,7 +46,7 @@ if not exist models (
 )
 if not exist models\yolov8-plate.pt (
   echo Download the plate model - about 6 MB.
-  powershell -Command "Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://huggingface.co/joker5914/yolov8n-license-plate/resolve/main/best.pt -OutFile models\yolov8-plate.pt"
 )
 echo.
 echo Setup is done.
