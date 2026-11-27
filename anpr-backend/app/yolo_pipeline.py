@@ -104,6 +104,42 @@ def _clamp_confidence(value):
     except (TypeError, ValueError):
         return 0.0
 
+def _padded_crop(frame, x1, y1, x2, y2):
+    """Crop a YOLO box with padding, so the first/last character is not cut off.
+
+    The box YOLO returns is tight — on a real plate the last digit often
+    sits right on the edge and gets clipped, so OCR then drops it.
+    Pad by 10% of the box width on left/right and 20% of the height
+    top/bottom, clamped to the frame. No horizontal flip here: OpenCV
+    gives the true view, not the mirrored selfie view a laptop preview
+    app shows, so flipping would reverse the text and break OCR.
+    Returns (crop, touches_edge) — touches_edge is True when the box
+    already hits the frame edge, meaning part of the plate may be
+    out of frame however much we pad.
+    """
+    height, width = frame.shape[0], frame.shape[1]
+    touches_edge = x1 <= 2 or y1 <= 2 or x2 >= width - 2 or y2 >= height - 2
+    bw, bh = max(1, x2 - x1), max(1, y2 - y1)
+    px, py = int(bw * 0.10) + 4, int(bh * 0.20) + 4
+    px1, py1 = max(0, x1 - px), max(0, y1 - py)
+    px2, py2 = min(width, x2 + px), min(height, y2 + py)
+    return frame[py1:py2, px1:px2], touches_edge
+
+def _enhance_low_light(plate_image):
+    """Brighten a dark plate crop for OCR: grey + CLAHE, 2x upscale.
+
+    Only used as an extra OCR retry when the plain read fails or is
+    low-confidence. No new dependency — cv2 only.
+    """
+    try:
+        grey = plate_image if len(plate_image.shape) == 2 else cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(grey)
+        return cv2.resize(enhanced, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    except Exception as exc:
+        _log(f"low-light enhance failed: {exc}")
+        return None
+
 def _position_fix(cleaned):
     """Fix misread characters in a 9- or 10-character read, by position.
 
@@ -313,6 +349,16 @@ def recognize_plate_text(reader, plate_image):
             retry_text, retry_confidence = _ocr_once(reader, grey)
         except Exception:
             pass
+    # Low light: one more retry on a brightened (CLAHE) crop. Keep it
+    # only if it reads a valid plate or beats the best score so far.
+    _, retry_valid, _, _ = validate_plate_text(retry_text)
+    if (not retry_valid or retry_confidence < MIN_CONFIDENCE) and (not valid or confidence < MIN_CONFIDENCE):
+        enhanced = _enhance_low_light(plate_image)
+        if enhanced is not None:
+            lit_text, lit_confidence = _ocr_once(reader, enhanced)
+            _, lit_valid, _, _ = validate_plate_text(lit_text)
+            if (lit_valid and not retry_valid) or lit_confidence > retry_confidence:
+                retry_text, retry_confidence = lit_text, lit_confidence
     _, retry_valid, _, _ = validate_plate_text(retry_text)
     if retry_valid and not valid:
         return retry_text, retry_confidence
@@ -437,7 +483,12 @@ if __name__ == "__main__":
             for x1, y1, x2, y2, detection_confidence in plates:
                 stats["plates_found"] += 1
                 try:
-                    crop = frame[y1:y2, x1:x2]
+                    # Padded crop (not the tight YOLO box) so the last
+                    # digit is not clipped off. Never flip: the frame
+                    # is already the true view.
+                    crop, touches_edge = _padded_crop(frame, x1, y1, x2, y2)
+                    if touches_edge:
+                        _log("plate touches frame edge — move it into the middle so the last digit is in frame")
                     raw_text, recognition_confidence = recognize_plate_text(reader, crop)
                     confidence = calculate_detection_confidence(
                         detection_confidence, recognition_confidence

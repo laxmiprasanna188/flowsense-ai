@@ -192,6 +192,14 @@
   .map-pin.sel{outline:3px solid #b45309}
 
   .cam-preview-box{padding:0 18px 18px}
+  .cam-view{margin-top:12px}
+  .cam-view video{width:100%;border-radius:12px;border:1px solid var(--line);background:#000;display:block;aspect-ratio:16/9;object-fit:cover}
+  .cam-view video.mirrored{transform:scaleX(-1)}
+  .cam-view-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+  .cam-view-row .btn{flex:1;min-height:44px}
+  .cam-view-note{font-size:12.5px;color:var(--ink-3);margin:8px 0 0}
+  .cam-light{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+  .cam-light input[type="range"]{flex:1}
   .cam-btns{display:flex;gap:8px;margin-top:0}
   .cam-btns .btn{flex:1;min-height:52px}
   .cam-status{display:inline-block;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin:10px 0 0}
@@ -320,6 +328,17 @@
             <ul class="cam-dropdown-list" id="camSelectList" role="listbox" hidden></ul>
           </div>
           <p class="access-label" id="accessingLabel">Accessing: HYD01 · Hitech City</p>
+          <div class="cam-view">
+            <video id="camPreview" playsinline muted autoplay></video>
+            <div class="cam-view-row">
+              <button type="button" class="btn secondary" id="showPreviewBtn">Show my camera</button>
+              <button type="button" class="btn secondary" id="hidePreviewBtn">Stop preview</button>
+              <button type="button" class="btn secondary" id="mirrorBtn" aria-pressed="false">Mirror: off</button>
+            </div>
+            <label class="cam-light">Brightness <input type="range" id="brightSlider" min="50" max="180" value="100" aria-label="Preview brightness" /> <span id="brightVal">100%</span></label>
+            <label class="cam-light"><input type="checkbox" id="lowLightChk" /> Low light boost</label>
+            <p class="cam-view-note" id="previewNote">Preview shows the true view, not mirrored, so the plate reads the right way. Mirror only changes what you see, not what is detected. If Start Camera is running, stop it first — the laptop webcam can be used by one thing at a time.</p>
+          </div>
           <div class="cam-btns">
             <button type="button" class="btn" id="startCamBtn">Start Camera</button>
             <button type="button" class="btn secondary" id="stopCamBtn">Stop Camera</button>
@@ -1209,6 +1228,37 @@
       .catch(function () { document.getElementById("alertFormHint").textContent = "Remove failed — restart the backend with the new main.py first."; });
   }
 
+  var previewStream = null;
+  var previewMirrored = false;
+  function applyPreviewFilter() {
+    var v = document.getElementById("camPreview");
+    var bright = Number(document.getElementById("brightSlider").value || 100);
+    var lowLight = document.getElementById("lowLightChk").checked;
+    var b = lowLight ? Math.max(bright, 140) : bright;
+    var c = lowLight ? 115 : 100;
+    v.style.filter = "brightness(" + b + "%) contrast(" + c + "%)";
+    document.getElementById("brightVal").textContent = b + "%";
+  }
+  function showPreview() {
+    var note = document.getElementById("previewNote");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { note.textContent = "This browser cannot open the laptop webcam — use Chrome or Edge."; return; }
+    if (live.pipelineRunning) { note.textContent = "Stop Camera first — the laptop webcam can be used by one thing at a time, then tap Show my camera."; return; }
+    navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }).then(function (stream) {
+      previewStream = stream;
+      var v = document.getElementById("camPreview");
+      v.srcObject = stream;
+      applyPreviewFilter();
+      note.textContent = "Preview on — true view, not mirrored. Hold the plate straight, in the middle, in good light.";
+    }).catch(function (e) {
+      note.textContent = String(e && e.name) === "NotAllowedError" ? "Camera blocked — allow camera access in the browser, then try again." : "Could not open the webcam — it may already be in use by Start Camera or another app. Stop Camera first, then try again.";
+    });
+  }
+  function hidePreview() {
+    if (previewStream) { previewStream.getTracks().forEach(function (t) { t.stop(); }); previewStream = null; }
+    var v = document.getElementById("camPreview");
+    v.srcObject = null;
+    document.getElementById("previewNote").textContent = "Preview off.";
+  }
   function startCamera() {
     var el = document.getElementById("camStatus");
     if (!isLive()) { el.textContent = "Backend not running — double-click run.bat."; return; }
@@ -1313,6 +1363,17 @@
   document.getElementById("createAlertBtn").addEventListener("click", createAlert);
   document.getElementById("startCamBtn").addEventListener("click", startCamera);
   document.getElementById("stopCamBtn").addEventListener("click", stopCamera);
+  document.getElementById("showPreviewBtn").addEventListener("click", showPreview);
+  document.getElementById("hidePreviewBtn").addEventListener("click", hidePreview);
+  document.getElementById("mirrorBtn").addEventListener("click", function () {
+    previewMirrored = !previewMirrored;
+    document.getElementById("camPreview").classList.toggle("mirrored", previewMirrored);
+    this.textContent = previewMirrored ? "Mirror: on" : "Mirror: off";
+    this.setAttribute("aria-pressed", String(previewMirrored));
+    document.getElementById("previewNote").textContent = previewMirrored ? "Mirrored for viewing only — detection still uses the true view, so keep Mirror off when checking a plate." : "True view — not mirrored, so the plate reads the right way.";
+  });
+  document.getElementById("brightSlider").addEventListener("input", applyPreviewFilter);
+  document.getElementById("lowLightChk").addEventListener("change", applyPreviewFilter);
   document.getElementById("camSelectBtn").addEventListener("click", function (e) { e.stopPropagation(); toggleCamDropdown(); });
   document.addEventListener("click", function (e) { var d = document.getElementById("camDropdown"); if (d && !d.contains(e.target)) closeCamDropdown(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeCamDropdown(); });
