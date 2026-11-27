@@ -16,10 +16,12 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo Make the database - psql will ask for a Password.
-echo Type the password you set when you installed PostgreSQL. Nothing shows while you type.
-psql -U postgres -c "CREATE USER buildathon WITH PASSWORD 'buildathon';"
-psql -U postgres -c "CREATE DATABASE buildathon OWNER buildathon;"
+echo Make the database - your Postgres password is asked ONCE now.
+echo Type the password you set when you installed PostgreSQL.
+echo Type it, do not paste it. Nothing shows while you type, that is normal.
+echo If it says "role buildathon already exists", that is fine, it will reuse it.
+psql -U postgres -v ON_ERROR_STOP=0 -c "CREATE USER buildathon WITH PASSWORD 'buildathon';" -c "CREATE DATABASE buildathon OWNER buildathon;"
+echo Database done.
 echo.
 echo Make the virtual environment and install - this takes a few minutes the first time.
 cd anpr-backend

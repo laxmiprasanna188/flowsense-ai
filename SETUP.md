@@ -4,9 +4,12 @@ Runs on your laptop only.
 
 One click: double-click `setup.bat` in the repo folder. It does
 Steps 2–6 for you — database, venv + install, `.env`, tables, and
-the plate model. You only type the Postgres password when it asks
-for it. The 7 steps below are the same work, by hand, if you ever
-need them.
+the plate model. It asks for your Postgres password ONCE only, at
+the database step. Type the password you set when you installed
+PostgreSQL — type it, do not paste it, nothing shows while you
+type, that is normal. If it says "role buildathon already exists",
+that is fine, it reuses it. The 7 steps below are the same work,
+by hand, if you ever need them.
 
 Paste every command as-is, unless a step says **type** — pasting a
 password does not work, the characters are hidden while you type.
@@ -31,9 +34,10 @@ cd flowsense-ai
 psql -U postgres
 ```
 
-**Type, don't paste:** at the `Password:` prompt, type the password
-you set when you installed PostgreSQL. Nothing shows while you type —
-that is normal. Then, at the `postgres=#` prompt, paste these two lines one at a
+**Type, don't paste:** at the `Password for user postgres:` prompt,
+type the password you set when you installed PostgreSQL. Nothing
+shows while you type — that is normal. It asks only once, at the
+start. Then, at the `postgres=#` prompt, paste these two lines one at a
 time:
 
 ```sql
