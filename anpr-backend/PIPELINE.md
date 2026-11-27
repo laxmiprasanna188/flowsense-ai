@@ -59,13 +59,15 @@ Two layers, both 30 seconds:
 
 ## Plate validation
 
-Only text matching the Indian plate format is sent:
-2 letters + 2 digits + 1–2 letters + 4 digits, e.g. `OD02AB1234`.
+Only text matching the Telangana plate format is sent:
+T + S/G + 2 digits + 2 letters + 4 digits, exactly 10 characters,
+e.g. `TS09EX1234`. The last 4 digits are compulsory.
 A position-aware fix (e.g. `O` → `0` where a digit is required)
 is only applied to 10-character text, and the result is flagged
 as corrected in the log line. An 11-character read may drop one
 leading/trailing junk character and retry the fix; a 9-character
-read is never repaired (that would invent a missing digit).
+read is rejected as last digit missing and is never repaired
+(that would invent a missing digit).
 Skipped plates are logged with the raw OCR text and both
 confidences. Anything else is skipped as invalid.
 

@@ -86,10 +86,11 @@ FAILED_LOG = (
     else str(_BASE_DIR / _failed_log_raw)
 )
 
-INDIAN_PLATE_RE = re.compile(r"^([A-Z]{2})(\d{2})([A-Z]{1,2})(\d{3,4})$")
-BH_PLATE_RE = re.compile(r"^(\d{2})BH(\d{4})([A-Z]{2})$")
+# Strict Telangana format only: T + S/G + 2 digits + 2 letters + 4 digits.
+# Exactly 10 characters, last 4 must be digits, e.g. TS09EX1234, TG01AH5432.
+INDIAN_PLATE_RE = re.compile(r"^T[SG]\d{2}[A-Z]{2}\d{4}$")
 _DIGIT_FIX = {"O": "0", "Q": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2", "G": "6"}
-_LETTER_FIX = {"0": "O", "1": "I", "5": "S", "8": "B", "2": "Z"}
+_LETTER_FIX = {"0": "O", "1": "I", "5": "S", "8": "B", "2": "Z", "6": "G"}
 _OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 _recently_sent = {}
@@ -109,8 +110,9 @@ def _padded_crop(frame, x1, y1, x2, y2):
 
     The box YOLO returns is tight — on a real plate the last digit often
     sits right on the edge and gets clipped, so OCR then drops it.
-    Pad by 10% of the box width on left/right and 20% of the height
-    top/bottom, clamped to the frame. No horizontal flip here: OpenCV
+    Pad by 12% of the box width on the left, 20% on the right (the last
+    digit side) and 25% of the height top/bottom, clamped to the frame.
+    No horizontal flip here: OpenCV
     gives the true view, not the mirrored selfie view a laptop preview
     app shows, so flipping would reverse the text and break OCR.
     Returns (crop, touches_edge) — touches_edge is True when the box
@@ -120,9 +122,10 @@ def _padded_crop(frame, x1, y1, x2, y2):
     height, width = frame.shape[0], frame.shape[1]
     touches_edge = x1 <= 2 or y1 <= 2 or x2 >= width - 2 or y2 >= height - 2
     bw, bh = max(1, x2 - x1), max(1, y2 - y1)
-    px, py = int(bw * 0.10) + 4, int(bh * 0.20) + 4
-    px1, py1 = max(0, x1 - px), max(0, y1 - py)
-    px2, py2 = min(width, x2 + px), min(height, y2 + py)
+    px_left, px_right = int(bw * 0.12) + 6, int(bw * 0.20) + 6
+    py = int(bh * 0.25) + 6
+    px1, py1 = max(0, x1 - px_left), max(0, y1 - py)
+    px2, py2 = min(width, x2 + px_right), min(height, y2 + py)
     return frame[py1:py2, px1:px2], touches_edge
 
 def _enhance_low_light(plate_image):
@@ -141,39 +144,37 @@ def _enhance_low_light(plate_image):
         return None
 
 def _position_fix(cleaned):
-    """Fix misread characters in a 9- or 10-character read, by position.
+    """Fix misread characters in a 10-character read, by position.
 
-    10 chars: 2 letters, 2 digits, 2 letters, 4 digits.
-    9 chars: either 2 letters, 2 digits, 1 letter, 4 digits, or
-    2 letters, 2 digits, 2 letters, 3 digits (e.g. TS07AH543).
+    Strict format only: T S/G + 2 digits + 2 letters + 4 digits.
+    Positions 2,3,6,7,8,9 must be digits; 0,1,4,5 must be letters.
+    A 9-character read is never fixed here — its last digit is missing,
+    and inventing it would send a wrong plate.
     """
-    if len(cleaned) == 10:
-        layouts = [(2, 3, 6, 7, 8, 9)]
-    elif len(cleaned) == 9:
-        layouts = [(2, 3, 5, 6, 7, 8), (2, 3, 6, 7, 8)]
-    else:
+    if len(cleaned) != 10:
         return "", False
-    for digit_pos in layouts:
-        chars, corrected = list(cleaned), False
-        for i, ch in enumerate(chars):
-            if i in digit_pos and ch in _DIGIT_FIX:
-                chars[i], corrected = _DIGIT_FIX[ch], True
-            elif i not in digit_pos and ch in _LETTER_FIX:
-                chars[i], corrected = _LETTER_FIX[ch], True
-        fixed = "".join(chars)
-        if corrected and (INDIAN_PLATE_RE.match(fixed) or BH_PLATE_RE.match(fixed)):
-            return fixed, True
+    digit_pos = (2, 3, 6, 7, 8, 9)
+    chars, corrected = list(cleaned), False
+    for i, ch in enumerate(chars):
+        if i in digit_pos and ch in _DIGIT_FIX:
+            chars[i], corrected = _DIGIT_FIX[ch], True
+        elif i not in digit_pos and ch in _LETTER_FIX:
+            chars[i], corrected = _LETTER_FIX[ch], True
+    fixed = "".join(chars)
+    if corrected and INDIAN_PLATE_RE.match(fixed):
+        return fixed, True
     return "", False
 
 def validate_plate_text(raw):
-    """Validate plate text as an Indian plate.
+    """Validate plate text as a Telangana plate.
 
-    Returns (plate, valid, corrected, reason). Accepts the normal
-    format (TS09EX1234, TS09E1234) and the BH format (22BH1234AB).
-    The last number may be 3 or 4 digits (TS07AH543, TG01AH543
-    as well as TS09EX1234). An 11-character read may drop one
-    leading/trailing character. A leading IND (printed on many
-    Indian plates) is stripped before checking.
+    Only this format is accepted, exactly 10 characters:
+    T + S/G + 2 digits + 2 letters + 4 digits, e.g. TS09EX1234.
+    The last 4 digits are compulsory. A 9-character read is rejected
+    as "last digit missing" — it is not sent, and no digit is invented.
+    An 11-character read may drop one leading/trailing junk character.
+    A leading IND (printed on many Indian plates) is stripped first.
+    Returns (plate, valid, corrected, reason).
     """
     if not raw:
         return "", False, False, "empty OCR result"
@@ -184,35 +185,34 @@ def validate_plate_text(raw):
         cleaned = cleaned[3:]
         if not cleaned:
             return "", False, False, "empty OCR result"
-    if INDIAN_PLATE_RE.match(cleaned) or BH_PLATE_RE.match(cleaned):
-        return cleaned, True, False, "matches Indian plate format"
-    if len(cleaned) in (9, 10):
+    if len(cleaned) == 10:
+        if INDIAN_PLATE_RE.match(cleaned):
+            return cleaned, True, False, "matches TS/TG plate format"
         fixed, ok = _position_fix(cleaned)
         if ok:
             return fixed, True, True, "position-aware correction applied"
+        return cleaned, False, False, "does not match TS/TG plate format"
+    if len(cleaned) == 9:
+        return (
+            cleaned, False, False,
+            "only 9 characters, last digit missing - needs 4 digits at end "
+            "(T + S/G + 2 digits + 2 letters + 4 digits)",
+        )
     if len(cleaned) == 11:
         for candidate in (cleaned[1:], cleaned[:-1]):
-            if INDIAN_PLATE_RE.match(candidate) or BH_PLATE_RE.match(candidate):
+            if INDIAN_PLATE_RE.match(candidate):
                 return (
-                    candidate,
-                    True,
-                    True,
+                    candidate, True, True,
                     "dropped one leading/trailing junk character",
                 )
             fixed, ok = _position_fix(candidate)
             if ok:
                 return (
-                    fixed,
-                    True,
-                    True,
+                    fixed, True, True,
                     "dropped one leading/trailing junk character "
                     "and applied position-aware correction",
                 )
-    if len(cleaned) == 12 and cleaned.startswith("IND"):
-        candidate = cleaned[3:]
-        if INDIAN_PLATE_RE.match(candidate) or BH_PLATE_RE.match(candidate):
-            return candidate, True, True, "dropped IND prefix"
-    return cleaned, False, False, "does not match Indian plate format"
+    return cleaned, False, False, "does not match TS/TG plate format"
 
 def is_duplicate(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
     """True if this plate+camera was already sent within the window."""
@@ -308,6 +308,20 @@ def _ocr_once(reader, plate_image):
         ordered = sorted(results, key=lambda item: float(item[2]), reverse=True)
     except (IndexError, TypeError, ValueError):
         return "", 0.0
+    # EasyOCR sometimes splits a plate into pieces, e.g. "TS09EX123" + "4".
+    # Joining the pieces left-to-right recovers the last digit.
+    if len(results) > 1:
+        try:
+            by_x = sorted(results, key=lambda item: min(p[0] for p in item[0]))
+            joined = "".join(str(item[1]).replace(" ", "").upper() for item in by_x)
+            _, joined_valid, _, _ = validate_plate_text(joined)
+            if joined_valid:
+                avg_conf = _clamp_confidence(
+                    sum(float(item[2]) for item in by_x) / len(by_x)
+                )
+                return joined, avg_conf
+        except (IndexError, TypeError, ValueError):
+            pass
     for item in ordered:
         try:
             text = str(item[1]).replace(" ", "").upper()

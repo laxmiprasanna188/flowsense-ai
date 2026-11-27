@@ -370,17 +370,17 @@
     <div class="stat">
       <p class="label">Detections today</p>
       <p class="value" id="statToday">0</p>
-      <p class="note">77% and above</p>
+      <p class="note"></p>
     </div>
     <div class="stat">
       <p class="label">Total vehicles detected</p>
       <p class="value" id="statVehicles">0</p>
-      <p class="note">77% and above</p>
+      <p class="note"></p>
     </div>
     <div class="stat">
       <p class="label">Plates recognized</p>
       <p class="value" id="statPlates">0</p>
-      <p class="note">Unique plates · 77% and above</p>
+      <p class="note">Unique plates</p>
     </div>
     <div class="stat">
       <p class="label">Avg. confidence</p>
@@ -390,7 +390,7 @@
     <div class="stat">
       <p class="label">High confidence</p>
       <p class="value" id="statHigh">0</p>
-      <p class="note">Reads at 77% or above</p>
+      <p class="note"></p>
     </div>
     <div class="stat">
       <p class="label">Active alerts</p>
@@ -697,7 +697,7 @@
           '<div><dt>Event ID</dt><dd class="mono">' + esc(d.event_id) + '</dd></div>' +
           '<div><dt>Timestamp</dt><dd>' + esc(d.timestampLabel) + '</dd></div>' +
           '<div><dt>Camera</dt><dd>' + esc(d.camera_id) + ' — ' + esc(cam.area || cam.name) + '</dd></div>' +
-          '<div><dt>Confidence</dt><dd>' + Number(d.confidence).toFixed(2) + ' (threshold 0.77)</dd></div>' +
+          '<div><dt>Confidence</dt><dd>' + Number(d.confidence).toFixed(2) + '</dd></div>' +
           '<div><dt>Trajectory</dt><dd><a href="#" class="traj-link" data-plate="' + esc(d.plate_text) + '">Track this plate →</a></dd></div>' +
           '<div><dt>Remove</dt><dd><button type="button" class="btn secondary" data-det-del="' + esc(d.plate_text) + '">Remove this plate</button></dd></div>' +
         '</dl></div>' +
@@ -724,7 +724,7 @@
     var cams = regionCameras();
     document.getElementById("camList").innerHTML = cams.map(function (c) {
       var dets = allDetections().filter(function (d) { return d.camera_id === c.id; });
-      var count = dets.length; // 77% and above only
+      var count = dets.length;
       var last = dets[0];
       var meta = c.online
         ? count + " detections" + (last ? " · last at " + last.time : "")
@@ -741,7 +741,7 @@
     });
   }
   function drawStats() {
-    var dets = regionDetections(); // already 77% and above, this region only
+    var dets = regionDetections();
     var avg = 0, high = 0, today = 0;
     if (dets.length) {
       avg = dets.reduce(function (sum, d) { return sum + d.confidence; }, 0) / dets.length;
