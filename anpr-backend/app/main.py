@@ -24,6 +24,7 @@ app.add_middleware(
 )
 
 DUPLICATE_WINDOW_SECONDS = 30
+MIN_CONFIDENCE = 0.77
 
 KNOWN_CAMERA_IDS = {camera["camera_id"] for camera in cameras}
 
@@ -268,15 +269,21 @@ def get_camera(camera_id: str):
 def get_analytics_summary(
     db: Session = Depends(get_db)
 ):
-    total_detections = db.query(Detection).count()
+    total_detections = db.query(Detection).filter(
+        Detection.confidence >= MIN_CONFIDENCE
+    ).count()
 
     average_confidence = db.query(
         func.avg(Detection.confidence)
+    ).filter(
+        Detection.confidence >= MIN_CONFIDENCE
     ).scalar()
 
     camera_counts = db.query(
     Detection.camera_id,
     func.count(Detection.id)
+    ).filter(
+        Detection.confidence >= MIN_CONFIDENCE
     ).group_by(
     Detection.camera_id
     ).order_by(
@@ -352,7 +359,8 @@ def get_hourly_analytics(
         func.count(Detection.id)
     ).filter(
     Detection.timestamp >= start_datetime,
-    Detection.timestamp < end_datetime
+    Detection.timestamp < end_datetime,
+    Detection.confidence >= MIN_CONFIDENCE
     ).group_by(
         ist_hour
     ).order_by(
@@ -422,7 +430,8 @@ def get_daily_analytics(
         func.count(Detection.id)
     ).filter(
         Detection.timestamp >= start_datetime,
-        Detection.timestamp < end_datetime
+        Detection.timestamp < end_datetime,
+        Detection.confidence >= MIN_CONFIDENCE
     ).group_by(
         ist_date
     ).order_by(
@@ -462,6 +471,8 @@ def get_camera_analytics(
         Detection.camera_id,
         func.count(Detection.id),
         func.avg(Detection.confidence)
+    ).filter(
+        Detection.confidence >= MIN_CONFIDENCE
     ).group_by(
         Detection.camera_id
     ).all()
@@ -530,7 +541,8 @@ def get_vehicle_trajectory(
             )
 
     query = db.query(Detection).filter(
-        Detection.plate_text == plate_text
+        Detection.plate_text == plate_text,
+        Detection.confidence >= MIN_CONFIDENCE
     )
 
     if start_date and end_date:
