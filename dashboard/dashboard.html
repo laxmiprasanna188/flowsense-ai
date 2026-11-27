@@ -543,16 +543,17 @@
   }
 
   function parseTime(ts) {
-    if (!ts) return { time: "—", hour: 12, label: "—" };
+    if (!ts) return { time: "—", hour: 12, label: "—", date: "—" };
     var d = new Date(ts);
     if (!isNaN(d.getTime())) {
       var hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
-      return { time: hh + ":" + mm, hour: d.getHours(), label: d.toLocaleString() };
+      var dd = String(d.getDate()).padStart(2, "0"), mo = String(d.getMonth() + 1).padStart(2, "0");
+      return { time: hh + ":" + mm, hour: d.getHours(), label: d.toLocaleString(), date: dd + "-" + mo + "-" + d.getFullYear() };
     }
     var s = String(ts);
     var m = s.match(/(\d{1,2}):(\d{2})/);
-    if (m) return { time: m[0], hour: parseInt(m[1], 10), label: s };
-    return { time: s, hour: 12, label: s };
+    if (m) return { time: m[0], hour: parseInt(m[1], 10), label: s, date: "—" };
+    return { time: s, hour: 12, label: s, date: "—" };
   }
   function normalizeDetection(raw, idx) {
     var plate = pick(raw, ["plate_text", "plate", "plate_number", "text"]) || "UNKNOWN";
@@ -567,7 +568,7 @@
       plate_text: String(plate).toUpperCase(),
       camera_id: String(cam),
       confidence: isNaN(conf) ? 0 : conf,
-      time: pt.time, hour: pt.hour, timestampLabel: pt.label
+      time: pt.time, hour: pt.hour, date: pt.date, timestampLabel: pt.label
     };
   }
   function normalizeCamera(raw) {
@@ -838,7 +839,8 @@
     if (!isLive()) { el.innerHTML = '<li>Backend not running \u2014 double-click run.bat.</li>'; return; }
     if (!list.length) { el.innerHTML = '<li>No vehicles spotted on this camera yet.</li>'; return; }
     el.innerHTML = list.slice(0, 10).map(function (d) {
-      return '<li><span><span class="plate">' + esc(d.plate_text) + '</span> \u00b7 ' + esc(d.time) + ' \u00b7 ' + pct(d.confidence) + '</span><button type="button" class="btn secondary" data-spotted-alert="' + esc(d.plate_text) + '">Alert</button></li>';
+      var when = d.date && d.date !== "—" ? "spotted at " + d.time + ", " + d.date : "spotted at " + d.time;
+      return '<li><span><span class="plate">' + esc(d.plate_text) + '</span> \u00b7 ' + esc(when) + ' \u00b7 ' + pct(d.confidence) + '</span><button type="button" class="btn secondary" data-spotted-alert="' + esc(d.plate_text) + '">Alert</button></li>';
     }).join("");
     el.querySelectorAll("[data-spotted-alert]").forEach(function (btn) {
       btn.addEventListener("click", function () { createAlertForPlate(btn.getAttribute("data-spotted-alert")); });

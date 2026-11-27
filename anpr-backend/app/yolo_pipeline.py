@@ -455,8 +455,6 @@ if __name__ == "__main__":
                         f"yolo_conf={detection_confidence} ({reason})"
                     )
                     continue
-                if corrected:
-                    _log(f"plate corrected, verify manually: {plate_text}")
                 if confidence < min_confidence:
                     stats["skipped_low_confidence"] += 1
                     _log(
