@@ -2,12 +2,10 @@
 
 One click: double-click `setup.bat` in the repo folder. It does
 Steps 2–6 for you — database, venv + install, `.env`, tables, and
-the plate model. You only type the Postgres password when it asks
-for it. The 7 steps below are the same work, by hand, if you ever
-need them.
+the plate model. Enter your Postgres password. The 7 steps below are the same work,
+by hand, if you ever need them.
 
-Paste every command as-is, unless a step says **type** — pasting a
-password does not work, the characters are hidden while you type.
+Paste every command as-is.
 
 ## Before you start
 
@@ -29,9 +27,7 @@ cd flowsense-ai
 psql -U postgres
 ```
 
-**Type, don't paste:** at the `Password:` prompt, type the password
-you set when you installed PostgreSQL. Nothing shows while you type —
-that is normal. Then, at the `postgres=#` prompt, paste these two lines one at a
+Enter your Postgres password. Then, at the `postgres=#` prompt, paste these two lines one at a
 time:
 
 ```sql
