@@ -1,8 +1,3 @@
-# Buildathon — YOLOv8 + EasyOCR + OpenCV pipeline.
-# Sends {camera_id, plate_text, confidence} to POST /api/detections.
-# Needs a plate-trained model at models/yolov8-plate.pt (NOT in the
-# repo). yolov8n.pt has no plate class and will not work.
-
 import json
 import os
 import re
@@ -21,13 +16,12 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 
 try:
     from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - dotenv is in requirements.txt
+except ImportError:
     load_dotenv = None
 
 if load_dotenv is not None:
     load_dotenv(_BASE_DIR / ".env", override=False)
     load_dotenv(Path.cwd() / ".env", override=False)
-
 
 def _env_number(name, default, cast):
     """Read a numeric setting, falling back to the default on a bad value."""
@@ -44,14 +38,11 @@ def _env_number(name, default, cast):
         )
         return default
 
-
 def _env_int(name, default):
     return _env_number(name, default, int)
 
-
 def _env_float(name, default):
     return _env_number(name, default, float)
-
 
 def _resolve_relative(path_str, default_base=_BASE_DIR):
     """Resolve a relative path: current folder first, then anpr-backend."""
@@ -67,7 +58,6 @@ def _resolve_relative(path_str, default_base=_BASE_DIR):
     if base_path.is_file():
         return str(base_path)
     return str(base_path)
-
 
 CAMERA_ID = os.getenv("CAMERA_ID", "CAM01") or "CAM01"
 VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "0") or "0"
@@ -103,10 +93,8 @@ _OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 _recently_sent = {}
 
-
 def _log(message):
     print(f"[pipeline] {message}", flush=True)
-
 
 def _clamp_confidence(value):
     """Clamp a confidence value to 0..1, rounded to 3 decimals."""
@@ -114,7 +102,6 @@ def _clamp_confidence(value):
         return round(max(0.0, min(1.0, float(value))), 3)
     except (TypeError, ValueError):
         return 0.0
-
 
 def _position_fix(cleaned):
     """Fix misread characters in a 10-character read, by position."""
@@ -129,7 +116,6 @@ def _position_fix(cleaned):
     if corrected and INDIAN_PLATE_RE.match(fixed):
         return fixed, True
     return "", False
-
 
 def validate_plate_text(raw):
     """Validate plate text as an Indian plate.
@@ -169,7 +155,6 @@ def validate_plate_text(raw):
                 )
     return cleaned, False, False, "does not match Indian plate format"
 
-
 def is_duplicate(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
     """True if this plate+camera was already sent within the window."""
     key = (camera_id, plate_text)
@@ -178,14 +163,12 @@ def is_duplicate(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
         return False
     return (time.time() - last_sent) < dedup_seconds
 
-
 def mark_sent(camera_id, plate_text, dedup_seconds=DEDUP_SECONDS):
     now = time.time()
     for key, sent_at in list(_recently_sent.items()):
         if now - sent_at >= dedup_seconds:
             del _recently_sent[key]
     _recently_sent[(camera_id, plate_text)] = now
-
 
 def log_failed_detection(detection, error):
     """Append a failed send to the local log so it is not lost."""
@@ -198,26 +181,23 @@ def log_failed_detection(detection, error):
     except OSError as exc:
         _log(f"could not write failed-detection log: {exc}")
 
-
 def process_camera_video_input(source):
     """Step 1: open a camera / video file / RTSP stream."""
     if isinstance(source, str) and source.isdigit():
         return cv2.VideoCapture(int(source))
     return cv2.VideoCapture(source)
 
-
 def extract_video_frames(capture):
     """Step 2: yield frames until the video ends or a read fails."""
     while True:
         try:
             success, frame = capture.read()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log(f"frame read failed: {exc}")
             break
         if not success or frame is None:
             break
         yield frame
-
 
 def detect_number_plates(model, frame):
     """Step 3: detect plates with YOLOv8; returns (x1, y1, x2, y2, confidence)."""
@@ -225,7 +205,7 @@ def detect_number_plates(model, frame):
         return []
     try:
         results = model(frame)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"YOLO detection failed: {exc}")
         return []
     if not results:
@@ -248,10 +228,9 @@ def detect_number_plates(model, frame):
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(width, x2), min(height, y2)
         if x2 - x1 < 20 or y2 - y1 < 8:
-            continue  # too small to read
+            continue
         plates.append((x1, y1, x2, y2, _clamp_confidence(confidence)))
     return plates
-
 
 def _ocr_once(reader, plate_image):
     """One EasyOCR pass; returns (plate_text, confidence)."""
@@ -261,7 +240,7 @@ def _ocr_once(reader, plate_image):
         results = reader.readtext(
             plate_image, allowlist=list(_OCR_ALLOWLIST)
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"EasyOCR failed: {exc}")
         return "", 0.0
     if not results:
@@ -272,7 +251,6 @@ def _ocr_once(reader, plate_image):
     except (IndexError, TypeError, ValueError):
         return "", 0.0
     return text.replace(" ", "").upper(), _clamp_confidence(recognition_confidence)
-
 
 def recognize_plate_text(reader, plate_image):
     """Step 4: recognize plate text with EasyOCR, retrying once on an upscaled crop."""
@@ -289,7 +267,7 @@ def recognize_plate_text(reader, plate_image):
         )
         if len(upscaled.shape) == 3:
             upscaled = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"OCR upscale failed: {exc}")
         return text, confidence
     retry_text, retry_confidence = _ocr_once(reader, upscaled)
@@ -302,13 +280,11 @@ def recognize_plate_text(reader, plate_image):
         return retry_text, retry_confidence
     return text, confidence
 
-
 def calculate_detection_confidence(detection_confidence, recognition_confidence):
     """Step 5: average of YOLO and OCR confidence, clamped 0..1."""
     return _clamp_confidence(
         (float(detection_confidence) + float(recognition_confidence)) / 2
     )
-
 
 def generate_structured_detection_results(camera_id, plate_text, confidence):
     """Step 6: the structured result sent to the API."""
@@ -317,7 +293,6 @@ def generate_structured_detection_results(camera_id, plate_text, confidence):
         "plate_text": plate_text,
         "confidence": _clamp_confidence(confidence),
     }
-
 
 def send_detection_results(detection, endpoint):
     """Step 7: POST the detection; retries once; never raises."""
@@ -340,7 +315,7 @@ def send_detection_results(detection, endpoint):
         except urllib.error.HTTPError as exc:
             try:
                 detail = exc.read().decode("utf-8", errors="replace")[:200]
-            except Exception:  # noqa: BLE001
+            except Exception:
                 detail = ""
             last_error = f"API returned {exc.code}: {detail}"
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -349,7 +324,6 @@ def send_detection_results(detection, endpoint):
             _log(f"send failed (attempt 1), retrying once: {last_error}")
             time.sleep(1)
     return {"ok": False, "status": None, "data": None, "error": last_error}
-
 
 if __name__ == "__main__":
     camera_id = CAMERA_ID
@@ -375,12 +349,12 @@ if __name__ == "__main__":
         sys.exit(1)
     try:
         model = YOLO(MODEL_PATH)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[pipeline] error: could not load YOLO model {MODEL_PATH}: {exc}", file=sys.stderr)
         sys.exit(1)
     try:
         reader = easyocr.Reader(["en"])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[pipeline] error: could not start EasyOCR: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -415,7 +389,7 @@ if __name__ == "__main__":
             stats["frames_processed"] += 1
             try:
                 plates = detect_number_plates(model, frame)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 _log(f"frame {stats['frames_read']} failed: {exc}")
                 continue
             for x1, y1, x2, y2, detection_confidence in plates:
@@ -426,7 +400,7 @@ if __name__ == "__main__":
                     confidence = calculate_detection_confidence(
                         detection_confidence, recognition_confidence
                     )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     _log(f"plate in frame {stats['frames_read']} failed: {exc}")
                     continue
 

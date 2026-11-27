@@ -4,13 +4,11 @@
 """
 
 from app.database import engine, Base
-from app.models import Detection  # noqa: F401 - registers the model with Base
-
+from app.models import Detection, Alert
 
 def main():
     Base.metadata.create_all(bind=engine)
     print("Database tables created successfully!")
-
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,8 @@
 # Buildathon — YOLOv8 + EasyOCR + OpenCV pipeline
 
 Adds camera/video plate detection to the Buildathon FastAPI backend
-(branch `feature/yolo-ocr-pipeline`, based on
-`feature/fastapi-postgresql-backend`). This is the group
-project — separate from the solo ANPR City Tracker project, separate
-cameras (Bhubaneswar, not Hyderabad), and it talks to this repo's
-PostgreSQL backend, not the solo project's SQLite one.
+Cameras in Bhubaneswar (CAM01-CAM03) and Hyderabad
+(HYD01-HYD08), and it talks to this repo's PostgreSQL backend.
 
 ## What it does — the 7 steps
 
@@ -75,7 +72,7 @@ confidences. Anything else is skipped as invalid.
 ## Camera validation
 
 `POST /api/detections` only accepts a known `camera_id` from
-`app/data.py` — CAM01, CAM02 or CAM03. Any other value is a
+`app/data.py` — CAM01, CAM02, CAM03, HYD01-HYD08. Any other value is a
 HTTP 400 and nothing is stored. An empty `plate_text` is also a
 400. An offline camera (CAM03 KIIT Square) is a known camera,
 so it is not rejected — it just happens to be offline right now.
@@ -161,7 +158,9 @@ fallback, and failed sends are logged to
 
 Cameras must match the backend (`app/data.py`): CAM01 Patia
 Junction (online), CAM02 Jaydev Vihar (online), CAM03 KIIT Square
-(offline).
+(offline), HYD01 Hitech City, HYD02 Gachibowli, HYD03 Kukatpally
+(offline), HYD04 Banjara Hills, HYD05 Begumpet, HYD06 Secunderabad,
+HYD07 Charminar, HYD08 LB Nagar (all online except HYD03).
 
 ## What it does NOT do
 

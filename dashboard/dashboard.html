@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Detections Dashboard — Buildathon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eef0ec;
+    --ink:#17201c; --ink-2:#4c5a53; --ink-3:#7d8a83; --line:#dde2dc;
+    --teal:#0e7a5f; --teal-soft:#e2f2ec;
+    --amber:#b45309; --amber-soft:#fdf0dd;
+    --red:#b3372f; --red-soft:#fbe9e7;
+    --plate-bg:#fdfdf8; --plate-ink:#14181a; --plate-line:#2a2f33;
+    --shadow:0 1px 2px rgba(23,32,28,.05),0 4px 14px rgba(23,32,28,.05);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#10140f; --surface:#1a2019; --surface-2:#232b22;
+      --ink:#eef2ec; --ink-2:#b3beb2; --ink-3:#849184; --line:#2e382e;
+      --teal:#3ec79f; --teal-soft:#17352b;
+      --amber:#e8a34c; --amber-soft:#3a2c14;
+      --red:#e07a6e; --red-soft:#3c201c;
+      --plate-bg:#f4f4ea; --plate-ink:#14181a; --plate-line:#10130f;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.45}
+  button,[role="button"],select,summary,input:not([type="checkbox"],[type="radio"]){min-height:2.25rem}
+  .mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+  @media (min-width:760px){.wrap{padding:28px 24px 48px}}
+  header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px 20px;margin-bottom:16px}
+  header.top .title-block{flex:1 1 260px;min-width:0}
+  h1{font-size:clamp(24px,4.5vw,34px);font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+  .subtitle{color:var(--ink-2);font-size:15px;margin:0}
+  .subtitle .mono{font-size:13.5px}
+  .top-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;color:var(--ink-2);box-shadow:var(--shadow)}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.on{background:var(--teal)}
+  .dot.off{background:var(--red)}
+  .dot.pulse{background:var(--teal);animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(14,122,95,.35)}50%{box-shadow:0 0 0 5px rgba(14,122,95,0)}}
+  @media (prefers-reduced-motion: reduce){.dot.pulse{animation:none}}
+
+
+  .offline-note{display:inline-block;font-size:12.5px;font-weight:700;color:var(--red);background:var(--red-soft);border:1px solid var(--red);border-radius:999px;padding:6px 10px;margin:0 0 12px}
+  .offline-note:empty{display:none}
+
+  .local-controls{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+  .local-btns{display:flex;flex-wrap:wrap;gap:10px}
+  .btn-big{flex:1 1 180px;border:none;border-radius:12px;padding:16px 18px;font:inherit;font-size:16px;font-weight:800;cursor:pointer;min-height:56px}
+  .btn-run{background:var(--teal);color:#fff}
+  .btn-stop{background:var(--red);color:#fff}
+  .btn-refresh{background:var(--surface-2);color:var(--ink);border:1.5px solid var(--line)}
+  .btn-big:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .local-msg{margin:12px 0 0;font-size:14px;font-weight:600;background:var(--surface-2);border-radius:10px;padding:11px 13px}
+  .local-msg:empty{display:none}
+  .hint:empty{display:none}
+  .stat .note:empty{display:none}
+  .cam-status:empty{display:none}
+
+  .region-bar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+  .region-bar-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 16px;margin-bottom:14px}
+  .region-bar-top .region-copy{min-width:0}
+  .region-bar-top .region-copy strong{display:block;font-size:16px;letter-spacing:-.01em}
+  .region-bar-top .region-copy span{display:block;font-size:13.5px;color:var(--ink-2);margin-top:2px;max-width:56ch}
+  .region-live{font-size:12px;font-weight:700;color:var(--ink-3);white-space:nowrap;display:flex;align-items:center;gap:6px}
+  .region-switch{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:560px){.region-switch{gap:10px}.region-option{padding:14px 14px 13px}.region-city{font-size:19px !important}}
+  .region-option{position:relative;text-align:left;background:var(--surface-2);border:1.5px solid transparent;border-radius:12px;padding:16px 16px 14px;cursor:pointer;font:inherit;color:var(--ink);display:flex;flex-direction:column;gap:2px;transition:border-color .15s ease,background .15s ease;min-height:118px}
+  .region-option:hover{border-color:var(--line);background:var(--surface)}
+  .region-option:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .region-option[aria-pressed="true"]{background:var(--teal-soft);border-color:var(--teal)}
+  .region-option-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .region-state{font-size:11.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+  .region-option[aria-pressed="true"] .region-state{color:var(--teal)}
+  .region-check{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);display:grid;place-items:center;flex:none;color:transparent;font-size:13px;line-height:1}
+  .region-option[aria-pressed="true"] .region-check{background:var(--teal);border-color:var(--teal);color:#fff}
+  @media (prefers-color-scheme: dark){.region-option[aria-pressed="true"] .region-check{color:#10140f}}
+  .region-city{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-top:4px}
+  .region-meta{font-size:13px;color:var(--ink-2);margin-top:4px;line-height:1.35}
+  .region-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+  .plate-badge{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;letter-spacing:.06em;background:var(--plate-bg);color:var(--plate-ink);border:1.5px solid var(--plate-line);border-radius:5px;padding:2px 6px}
+  .cam-badge{font-size:12px;font-weight:700;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 8px}
+  @media (prefers-reduced-motion: reduce){.region-option{transition:none}}
+
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+  @media (min-width:760px){.stats{grid-template-columns:repeat(4,1fr);gap:14px}}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+  .stat .label{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px}
+  .stat .value{font-size:32px;font-weight:800;letter-spacing:-.02em;line-height:1.05;margin:0}
+  .stat .value small{font-size:16px;font-weight:700;color:var(--ink-3)}
+  .stat .note{font-size:13px;color:var(--ink-2);margin:6px 0 0}
+
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+  .search{flex:1 1 220px;position:relative}
+  .search input{width:100%;padding:10px 14px 10px 40px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:15px;min-height:44px}
+  .search input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent}
+  .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--ink-3);pointer-events:none}
+  .pills{display:flex;flex-wrap:wrap;gap:8px}
+  .pills button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:8px 15px;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;min-height:40px}
+  .pills button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .pills button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+  .grid{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
+  .top-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:stretch}
+  .top-row>.panel{display:flex;flex-direction:column}
+  @media (max-width:760px){.top-row{grid-template-columns:1fr}}
+
+  @media (min-width:960px){.grid{grid-template-columns:minmax(0,1fr) 330px}}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:16px 18px 8px}
+  .panel-head h2{font-size:17px;font-weight:800;margin:0;letter-spacing:-.01em}
+  .panel-head .count{font-size:13px;color:var(--ink-3);font-weight:600;white-space:nowrap}
+  .side{display:grid;gap:16px}
+
+  .rows{list-style:none;margin:0;padding:6px 10px 12px}
+  .row{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;padding:13px 8px;border-top:1px solid var(--line);cursor:pointer;border-radius:8px}
+  .row:first-child{border-top:none}
+  .row:hover{background:var(--surface-2)}
+  .row:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+  .plate{display:inline-flex;align-items:stretch;background:var(--plate-bg);color:var(--plate-ink);border:2px solid var(--plate-line);border-radius:7px;overflow:hidden;height:fit-content}
+  .plate .ind{background:#22409a;color:#fff;font-size:8.5px;font-weight:700;display:flex;align-items:center;padding:0 4px;letter-spacing:.03em}
+  .plate .num{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:15.5px;letter-spacing:.06em;padding:5px 9px 5px 7px;white-space:nowrap}
+  .row-main{min-width:0}
+  .row-line1{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+  .cam-name{font-weight:700;font-size:14.5px}
+  .cam-id{font-size:12px;color:var(--ink-3);font-weight:600}
+  .time{margin-left:auto;font-size:13px;color:var(--ink-2);font-weight:600;white-space:nowrap}
+  .row-line2{display:flex;align-items:center;gap:10px;margin-top:7px}
+  .conf-bar{flex:1;height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;min-width:60px}
+  .conf-fill{height:100%;border-radius:99px;background:var(--teal)}
+  .conf-fill.mid{background:var(--amber)}
+  .conf-pct{font-size:13px;font-weight:700;white-space:nowrap}
+  .conf-pct small{color:var(--ink-3);font-weight:600}
+  .row-detail{display:none;grid-column:1 / -1;background:var(--surface-2);border-radius:10px;padding:12px 14px;margin-top:4px}
+  .row.open .row-detail{display:block}
+  .row-detail dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px 16px;margin:0}
+  .row-detail dt{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+  .row-detail dd{margin:2px 0 0;font-size:14px;font-weight:600}
+  .empty{padding:34px 18px;text-align:center;color:var(--ink-2)}
+  .empty strong{display:block;font-size:16px;color:var(--ink);margin-bottom:4px}
+  .list-foot{padding:0 18px 16px;font-size:13px;color:var(--ink-3)}
+
+  .cam-list{list-style:none;margin:0;padding:4px 18px 16px;display:grid;gap:10px}
+  .cam{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:13px 14px;cursor:pointer}
+  .cam.selected{border-color:var(--teal);background:var(--teal-soft)}
+  .cam .dot{margin-top:5px}
+  .cam .info{flex:1;min-width:0}
+  .cam .name{font-weight:700;font-size:15px;margin:0}
+  .cam .loc{font-size:13px;color:var(--ink-2);margin:1px 0 0}
+  .cam .meta{font-size:12.5px;color:var(--ink-3);margin:5px 0 0}
+  .badge{font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:4px 9px;border-radius:999px;white-space:nowrap}
+  .badge.on{background:var(--teal-soft);color:var(--teal)}
+  .badge.off{background:var(--red-soft);color:var(--red)}
+  .badge.active{background:var(--red-soft);color:var(--red)}
+  .badge.ack{background:var(--amber-soft);color:var(--amber)}
+  .badge.resolved{background:var(--teal-soft);color:var(--teal)}
+
+
+  .map-box{padding:0 18px 16px}
+  #map{height:320px;width:100%;border-radius:12px;border:1px solid var(--line);z-index:1}
+  .map-note{font-size:12.5px;color:var(--ink-3);margin:8px 0 0}
+  .map-pin{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+  .map-pin.on{background:#0e7a5f}
+  .map-pin.off{background:#b3372f}
+  .map-pin.sel{outline:3px solid #b45309}
+
+  .cam-preview-box{padding:0 18px 18px}
+  .cam-btns{display:flex;gap:8px;margin-top:0}
+  .cam-btns .btn{flex:1;min-height:52px}
+  .cam-status{display:inline-block;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin:10px 0 0}
+
+  .btn{border:1px solid var(--line);background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 16px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;min-height:44px}
+  .btn.secondary{background:var(--surface);color:var(--ink)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .btn:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+  .tracker{margin-bottom:16px;border-color:var(--teal)}
+  .tracker .panel-head{padding-bottom:4px}
+  .tracker .panel-head h2{font-size:19px}
+  .tracker-sub{padding:0 18px;margin:0;color:var(--ink-2);font-size:13.5px;max-width:72ch}
+  .tracker-body{padding:12px 18px 18px}
+  .track-form{display:flex;flex-wrap:wrap;gap:8px}
+  .track-form input{flex:1 1 220px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-family:"JetBrains Mono",monospace;font-size:16px;font-weight:700;letter-spacing:.05em;min-height:50px;text-transform:uppercase}
+  .track-form input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent}
+  .track-form .btn{min-height:50px;padding:10px 22px;font-size:15px}
+  .track-chips{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-top:10px;font-size:12.5px;color:var(--ink-3);font-weight:600}
+  .track-chips button{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:999px;padding:5px 11px;font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:700;cursor:pointer;min-height:32px}
+  .track-chips button:hover{border-color:var(--teal);color:var(--teal)}
+  .track-chips button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .track-result{margin-top:14px}
+  .track-result:empty{display:none}
+  .track-summary{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center;background:var(--surface-2);border-radius:12px;padding:14px 16px}
+  .plate.big .num{font-size:19px;padding:7px 12px 7px 9px}
+  .plate.big .ind{font-size:10px;padding:0 5px}
+  .track-stats{display:flex;flex-wrap:wrap;gap:8px 26px;flex:1}
+  .track-stats .ts{min-width:86px}
+  .track-stats .ts b{display:block;font-size:17px;font-weight:800;letter-spacing:-.01em}
+  .track-stats .ts span{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+  .route{display:flex;align-items:flex-start;margin:18px 2px 4px;overflow:hidden}
+  .route-node{flex:1 1 0;min-width:0;text-align:center;position:relative;padding:0 4px}
+  .route-node::before{content:"";position:absolute;top:7px;left:-50%;width:100%;height:2px;background:var(--line)}
+  .route-node:first-child::before{display:none}
+  .route-node .r-dot{width:15px;height:15px;border-radius:50%;background:var(--teal);margin:0 auto;position:relative;z-index:1;box-shadow:0 0 0 3px var(--teal-soft)}
+  .route-node.last .r-dot{background:var(--amber);box-shadow:0 0 0 3px var(--amber-soft)}
+  .route-node .r-cam{font-weight:700;font-size:13px;margin-top:8px;line-height:1.25}
+  .route-node .r-time{font-size:12px;color:var(--ink-2);font-weight:600}
+  @media (max-width:560px){.route-node .r-cam{font-size:11.5px}.route-node .r-time{font-size:11px}}
+  .track-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .track-actions .btn{min-height:40px;padding:8px 14px;font-size:13.5px}
+  .seen-badge{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--teal-soft);color:var(--teal);white-space:nowrap}
+  .seen-badge.last{background:var(--amber-soft);color:var(--amber)}
+  .match-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .match-list button{border:1.5px solid var(--plate-line);background:var(--plate-bg);color:var(--plate-ink);border-radius:7px;padding:7px 12px;font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:700;letter-spacing:.05em;cursor:pointer;min-height:40px}
+  .match-list button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .track-alerts{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+  .track-alerts h3{font-size:14px;font-weight:800;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .track-alerts h3 .count{font-size:12px;color:var(--ink-3);font-weight:600}
+  .track-alerts .alert-list{padding:0}
+  .track-alerts .none{font-size:13.5px;color:var(--ink-2);margin:0}
+
+  .traj-steps{list-style:none;margin:0;padding:0}
+  .traj-steps li{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+  .traj-steps li:first-child{border-top:none}
+  .traj-dot{width:11px;height:11px;border-radius:50%;background:var(--teal);margin-top:5px;flex:none;box-shadow:0 0 0 3px var(--teal-soft)}
+  .traj-steps .t-main{flex:1;min-width:0}
+  .traj-steps .t-cam{font-weight:700;font-size:14px}
+  .traj-steps .t-sub{font-size:12.5px;color:var(--ink-2)}
+  .traj-steps .t-time{font-size:13px;font-weight:700;white-space:nowrap}
+
+  .alert-list{list-style:none;margin:0;padding:0 18px 8px;display:grid;gap:10px;max-height:220px;overflow-y:auto}
+  .alert-item{border:1px solid var(--line);border-radius:12px;padding:12px 13px}
+  .alert-item .a-top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+  .alert-item .a-plate{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:14px}
+  .alert-item .a-reason{font-size:13px;color:var(--ink-2);margin:5px 0 0}
+  .alert-item .a-meta{font-size:12px;color:var(--ink-3);margin:4px 0 0}
+  .alert-form{padding:0 18px 16px;display:grid;gap:6px}
+  .alert-form input{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px;min-height:42px}
+  .alert-form .hint{font-size:12.5px;color:var(--ink-3);margin:0}
+
+  footer{margin-top:16px;padding-top:16px;border-top:1px solid var(--line);color:var(--ink-3);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title-block">
+      <h1>Detections</h1>
+      <p class="subtitle">Runs on your laptop only.</p>
+    </div>
+    <div class="top-meta">
+      <span class="pill"><span class="dot off" id="sourceDot"></span> <span id="sourcePill">Not running</span></span>
+      <span class="pill"><span class="dot off" id="onlineDot"></span> <span id="onlinePill">0 of 11 cameras online</span></span>
+    </div>
+  </header>
+
+  <p class="offline-note" id="offlineBanner">Backend not running — double-click run.bat</p>
+
+<section class="local-controls" aria-label="Camera controls">
+    <div class="local-btns">
+      <button type="button" class="btn-big btn-run" id="runBtn">▶ Run</button>
+      <button type="button" class="btn-big btn-stop" id="stopBtn">■ Stop</button>
+      <button type="button" class="btn-big btn-refresh" id="refreshBtn">↻ Reconnect</button>
+    </div>
+    <p class="local-msg" id="localMsg"></p>
+  </section>
+
+  <div class="top-row">
+<section class="panel" aria-label="Camera">
+        <div class="panel-head"><h2>Camera</h2><span class="count">On-demand</span></div>
+        <div class="cam-preview-box">
+          <div class="cam-btns">
+            <button type="button" class="btn" id="startCamBtn">Start Camera</button>
+            <button type="button" class="btn secondary" id="stopCamBtn">Stop Camera</button>
+          </div>
+          <p class="cam-status" id="camStatus">Camera stopped.</p>
+        </div>
+      </section>
+<section class="panel" aria-label="Alerts">
+        <div class="panel-head"><h2>Alerts</h2><span class="count" id="alertsCount">0</span></div>
+        <ul class="alert-list" id="alertList"></ul>
+        <div class="alert-form">
+          <input type="text" id="alertPlateInput" placeholder="Plate for new alert" aria-label="Plate for new alert" style="text-transform:uppercase" />
+          <input type="text" id="alertReasonInput" placeholder="Reason — e.g. Watchlist" aria-label="Alert reason" />
+          <button type="button" class="btn" id="createAlertBtn">Create alert</button>
+          <p class="hint" id="alertFormHint"></p>
+        </div>
+      </section>
+  </div>
+
+  <div class="region-bar" aria-label="Choose region">
+    <div class="region-bar-top">
+      <div class="region-copy">
+        <strong id="regionHeading">Telangana — Hyderabad</strong>
+        <span id="regionSub">Showing TS plates from Hitech City, Gachibowli, Secunderabad, Charminar &amp; more.</span>
+      </div>
+      <span class="region-live"><span class="dot pulse" aria-hidden="true"></span> <span id="regionLiveText"></span></span>
+    </div>
+    <div class="region-switch" role="region" aria-label="Switch city">
+      <button type="button" class="region-option" data-region="telangana" aria-pressed="true">
+        <span class="region-option-top"><span class="region-state">Telangana</span><span class="region-check" aria-hidden="true">✓</span></span>
+        <span class="region-city">Hyderabad</span>
+        <span class="region-meta">Hitech City · Gachibowli · Charminar &amp; more</span>
+        <span class="region-foot"><span class="plate-badge">TS</span><span class="cam-badge">8 cameras · 7 online</span></span>
+      </button>
+      <button type="button" class="region-option" data-region="odisha" aria-pressed="false">
+        <span class="region-option-top"><span class="region-state">Odisha</span><span class="region-check" aria-hidden="true">✓</span></span>
+        <span class="region-city">Bhubaneswar</span>
+        <span class="region-meta">Patia · Jaydev Vihar · KIIT Square</span>
+        <span class="region-foot"><span class="plate-badge">OD</span><span class="cam-badge">3 cameras · 2 online</span></span>
+      </button>
+    </div>
+  </div>
+
+  <section class="stats" aria-label="Summary">
+    <div class="stat">
+      <p class="label">Detections today</p>
+      <p class="value" id="statToday">0</p>
+      <p class="note" id="statTodayNote"></p>
+    </div>
+    <div class="stat">
+      <p class="label">Avg. confidence</p>
+      <p class="value" id="statAvg">—</p>
+      <p class="note"></p>
+    </div>
+    <div class="stat">
+      <p class="label">High confidence</p>
+      <p class="value" id="statHigh">0</p>
+      <p class="note">Reads at 85% or above</p>
+    </div>
+    <div class="stat">
+      <p class="label">Active alerts</p>
+      <p class="value" id="statAlerts">0</p>
+      <p class="note" id="statAlertsNote"></p>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Camera map" style="margin-bottom:16px">
+    <div class="panel-head"><h2>Camera map</h2><span class="count" id="mapCount">11 cameras · tap a pin to filter</span></div>
+    <div class="map-box">
+      <div id="map"></div>
+      <p class="map-note">Tap a pin to filter.</p>
+      <div style="margin-top:10px"><button type="button" class="btn secondary" id="showAllBtn">Show all cameras</button></div>
+    </div>
+  </section>
+
+  <section class="panel tracker" id="trackerPanel" aria-label="Track a plate">
+    <div class="panel-head">
+      <h2>Track any plate</h2>
+      <span class="count" id="trajSource"></span>
+    </div>
+    <p class="tracker-sub">Type any plate number — full or partial — and see everywhere it was seen: every camera in order with times, plus any alerts raised for that plate.</p>
+    <div class="tracker-body">
+      <div class="track-form">
+        <input type="text" id="trajInput" placeholder="Enter plate — e.g. TS09EX1234" aria-label="Plate number to track" autocomplete="off" spellcheck="false" />
+        <button type="button" class="btn" id="trajBtn">Track plate</button>
+      </div>
+      <div class="track-chips" id="trackChips"></div>
+      <div class="track-result" id="trajResult"></div>
+    </div>
+  </section>
+
+  <div class="controls">
+    <div class="search">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      <input type="search" id="searchInput" placeholder="Search a plate" aria-label="Search by plate number" />
+    </div>
+    <div class="pills" id="camPills" role="region" aria-label="Filter by camera"></div>
+  </div>
+
+  <div class="grid">
+    <section class="panel" aria-label="Detection feed">
+      <div class="panel-head">
+        <h2>Detection feed</h2>
+        <span class="count" id="feedCount">Showing 0 of 0</span>
+      </div>
+      <ul class="rows" id="rows"></ul>
+      <div class="empty" id="emptyState">
+        <strong>No detections yet</strong>
+        Backend not running — double-click run.bat, then tap Start Camera.
+      </div>
+      <p class="list-foot">Newest first. Tap a row for details.</p>
+    </section>
+
+    <div class="side">
+      <section class="panel" aria-label="Cameras">
+        <div class="panel-head"><h2>Cameras</h2><span class="count" id="camCityLabel">Hyderabad</span></div>
+        <ul class="cam-list" id="camList"></ul>
+      </section>
+
+
+    </div>
+  </div>
+
+  <footer>
+    <span>Detections — Hyderabad &amp; Bhubaneswar</span>
+    <span></span>
+  </footer>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  var API_BASE = "http://localhost:8000";
+  var DEFAULT_REGION = "telangana";
+
+  var LOCAL_CAMERAS = [
+    { id: "CAM01", name: "Patia Junction", area: "Patia, Bhubaneswar", region: "odisha", lat: 20.2961, lng: 85.8245, online: true },
+    { id: "CAM02", name: "Jaydev Vihar", area: "Jaydev Vihar, Bhubaneswar", region: "odisha", lat: 20.2960, lng: 85.8410, online: true },
+    { id: "CAM03", name: "KIIT Square", area: "KIIT Square, Bhubaneswar", region: "odisha", lat: 20.3530, lng: 85.8260, online: false },
+    { id: "HYD01", name: "Hitech City", area: "Hitech City, Hyderabad", region: "telangana", lat: 17.4435, lng: 78.3772, online: true },
+    { id: "HYD02", name: "Gachibowli", area: "Gachibowli, Hyderabad", region: "telangana", lat: 17.4400, lng: 78.3480, online: true },
+    { id: "HYD03", name: "Kukatpally", area: "Kukatpally, Hyderabad", region: "telangana", lat: 17.4850, lng: 78.4010, online: false },
+    { id: "HYD04", name: "Banjara Hills", area: "Banjara Hills, Hyderabad", region: "telangana", lat: 17.4120, lng: 78.4400, online: true },
+    { id: "HYD05", name: "Begumpet", area: "Begumpet, Hyderabad", region: "telangana", lat: 17.4420, lng: 78.4600, online: true },
+    { id: "HYD06", name: "Secunderabad", area: "Secunderabad, Hyderabad", region: "telangana", lat: 17.4390, lng: 78.4980, online: true },
+    { id: "HYD07", name: "Charminar", area: "Charminar, Hyderabad", region: "telangana", lat: 17.3610, lng: 78.4740, online: true },
+    { id: "HYD08", name: "LB Nagar", area: "LB Nagar, Hyderabad", region: "telangana", lat: 17.3520, lng: 78.5520, online: true }
+  ];
+  var REGIONS = {
+    telangana: { label: "Telangana — Hyderabad", city: "Hyderabad", sub: "Showing TS plates from Hitech City, Gachibowli, Secunderabad, Charminar & more.", prefix: "TS", centre: [17.44, 78.38] },
+    odisha: { label: "Odisha — Bhubaneswar", city: "Bhubaneswar", sub: "Showing OD plates from Patia, Jaydev Vihar & KIIT Square.", prefix: "OD", centre: [20.30, 85.83] }
+  };
+
+  var state = { region: DEFAULT_REGION, cam: "ALL", query: "" };
+  var live = {
+    connected: false, connecting: false, lastFetch: null,
+    summary: null,
+    detections: [], cameras: null, alerts: [],
+    endpointStatus: {},
+    pipelineControl: false, pipelineRunning: false
+  };
+  var camStream = null;
+  var map = null, markers = {};
+
+  function isLive() { return live.connected; }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+  function pick(obj, keys) {
+    if (!obj) return undefined;
+    for (var i = 0; i < keys.length; i++) if (obj[keys[i]] !== undefined && obj[keys[i]] !== null) return obj[keys[i]];
+    return undefined;
+  }
+  function asArray(data, keys) {
+    if (Array.isArray(data)) return data;
+    if (!data || typeof data !== "object") return [];
+    if (keys) for (var i = 0; i < keys.length; i++) if (Array.isArray(data[keys[i]])) return data[keys[i]];
+    var common = ["detections", "items", "results", "data", "alerts", "cameras", "trajectory", "sightings", "steps", "camera_analytics"];
+    for (var j = 0; j < common.length; j++) if (Array.isArray(data[common[j]])) return data[common[j]];
+    return [];
+  }
+  function pct(c) { return Math.round(c * 100) + "%"; }
+
+  function camById(id) {
+    for (var i = 0; i < LOCAL_CAMERAS.length; i++) if (LOCAL_CAMERAS[i].id === id) return LOCAL_CAMERAS[i];
+    return { id: id, name: id, area: "", region: null, online: false };
+  }
+  function regionOfDetection(d) {
+    var cam = camById(d.camera_id);
+    if (cam.region) return cam.region;
+    if (d.plate_text.indexOf("TS") === 0) return "telangana";
+    if (d.plate_text.indexOf("OD") === 0) return "odisha";
+    return null;
+  }
+  function mergedCameras() {
+    var out = LOCAL_CAMERAS.map(function (c) { return { id: c.id, name: c.name, area: c.area, region: c.region, lat: c.lat, lng: c.lng, online: c.online, count: null }; });
+    if (live.cameras && live.cameras.length) {
+      live.cameras.forEach(function (lc) {
+        var found = null;
+        for (var i = 0; i < out.length; i++) if (out[i].id === lc.id) found = out[i];
+        if (found) {
+          if (lc.name) found.name = lc.name;
+          if (lc.area) found.area = lc.area;
+          found.online = lc.online;
+          if (lc.count !== undefined && lc.count !== null) found.count = lc.count;
+        } else {
+          out.push(lc);
+        }
+      });
+    }
+    return out;
+  }
+  function regionCameras() {
+    return mergedCameras().filter(function (c) { return c.region === state.region; });
+  }
+  function allDetections() { return isLive() ? live.detections : []; }
+  function regionDetections() {
+    return allDetections().filter(function (d) { return regionOfDetection(d) === state.region; });
+  }
+  function filtered() {
+    var q = state.query.replace(/\s+/g, "").toUpperCase();
+    return regionDetections().filter(function (d) {
+      if (state.cam !== "ALL" && d.camera_id !== state.cam) return false;
+      if (q && d.plate_text.indexOf(q) === -1) return false;
+      return true;
+    });
+  }
+
+  function parseTime(ts) {
+    if (!ts) return { time: "—", hour: 12, label: "—" };
+    var d = new Date(ts);
+    if (!isNaN(d.getTime())) {
+      var hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
+      return { time: hh + ":" + mm, hour: d.getHours(), label: d.toLocaleString() };
+    }
+    var s = String(ts);
+    var m = s.match(/(\d{1,2}):(\d{2})/);
+    if (m) return { time: m[0], hour: parseInt(m[1], 10), label: s };
+    return { time: s, hour: 12, label: s };
+  }
+  function normalizeDetection(raw, idx) {
+    var plate = pick(raw, ["plate_text", "plate", "plate_number", "text"]) || "UNKNOWN";
+    var cam = pick(raw, ["camera_id", "camera", "cam_id"]) || "—";
+    var conf = pick(raw, ["confidence", "score"]);
+    conf = typeof conf === "number" ? conf : (conf ? parseFloat(conf) : 0);
+    if (conf > 1.5) conf = conf / 100;
+    var ts = pick(raw, ["timestamp", "created_at", "time", "detected_at"]);
+    var pt = parseTime(ts);
+    return {
+      event_id: String(pick(raw, ["event_id", "id", "detection_id"]) || ("live-" + idx)),
+      plate_text: String(plate).toUpperCase(),
+      camera_id: String(cam),
+      confidence: isNaN(conf) ? 0 : conf,
+      time: pt.time, hour: pt.hour, timestampLabel: pt.label
+    };
+  }
+  function normalizeCamera(raw) {
+    var id = String(pick(raw, ["camera_id", "id", "cam_id"]) || "—");
+    var name = String(pick(raw, ["camera_name", "name", "location"]) || id);
+    var local = camById(id);
+    var status = pick(raw, ["status", "online", "is_online"]);
+    var online = status === true || status === "online" || status === "active" || status === undefined;
+    if (status === false || status === "offline" || status === "inactive") online = false;
+    if (local.region && status === undefined) online = local.online;
+    return {
+      id: id, name: name === id && local.name ? local.name : name,
+      area: String(pick(raw, ["area", "location", "address"]) || local.area || ""),
+      region: local.region || null, lat: local.lat, lng: local.lng,
+      online: online,
+      count: pick(raw, ["count", "detections", "total", "detection_count", "total_detections"])
+    };
+  }
+
+  function drawStatus() {
+    var dot = document.getElementById("sourceDot");
+    var pill = document.getElementById("sourcePill");
+    var banner = document.getElementById("offlineBanner");
+    var city = REGIONS[state.region].city;
+    if (live.connecting) {
+      dot.className = "dot pulse"; pill.textContent = "Connecting…";
+      banner.style.display = "";
+    } else if (isLive()) {
+      dot.className = "dot on"; pill.textContent = "Connected — " + city;
+      banner.style.display = "none";
+    } else {
+      dot.className = "dot off"; pill.textContent = "Not running";
+      banner.style.display = "";
+    }
+    var cams = mergedCameras();
+    var online = cams.filter(function (c) { return c.online; }).length;
+    document.getElementById("onlinePill").textContent = isLive()
+      ? online + " of " + cams.length + " cameras online"
+      : "0 of 11 cameras online";
+    document.getElementById("onlineDot").className = "dot " + (isLive() && online > 0 ? "on" : "off");
+    document.getElementById("regionLiveText").textContent = isLive() ? "Connected" : "";
+  }
+  function drawRegionMeta() {
+    document.getElementById("regionHeading").textContent = REGIONS[state.region].label;
+    document.getElementById("regionSub").textContent = REGIONS[state.region].sub;
+    document.getElementById("camCityLabel").textContent = REGIONS[state.region].city;
+    document.querySelectorAll(".region-option").forEach(function (btn) {
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-region") === state.region ? "true" : "false");
+    });
+  }
+  function drawRows() {
+    var list = filtered();
+    var dets = regionDetections();
+    var rowsEl = document.getElementById("rows");
+    document.getElementById("emptyState").hidden = list.length > 0;
+    if (!isLive()) document.getElementById("emptyState").hidden = false;
+    document.getElementById("feedCount").textContent =
+      "Showing " + list.length + " of " + dets.length + " · " + REGIONS[state.region].label;
+    rowsEl.innerHTML = list.map(function (d) {
+      var cam = camById(d.camera_id);
+      var mid = d.confidence < 0.85 ? " mid" : "";
+      return '<li class="row" tabindex="0" role="button" aria-expanded="false" data-plate="' + esc(d.plate_text) + '">' +
+        '<span class="plate" aria-label="Plate ' + esc(d.plate_text) + '"><span class="ind">IND</span><span class="num">' + esc(d.plate_text) + '</span></span>' +
+        '<div class="row-main">' +
+          '<div class="row-line1"><span class="cam-name">' + esc(cam.name) + '</span>' +
+          '<span class="cam-id mono">' + esc(d.camera_id) + '</span>' +
+          '<span class="time">' + esc(d.time) + '</span></div>' +
+          '<div class="row-line2"><div class="conf-bar"><div class="conf-fill' + mid + '" style="width:' + Math.round(d.confidence * 100) + '%"></div></div>' +
+          '<span class="conf-pct">' + pct(d.confidence) + ' <small>confidence</small></span></div>' +
+        '</div>' +
+        '<div class="row-detail"><dl>' +
+          '<div><dt>Event ID</dt><dd class="mono">' + esc(d.event_id) + '</dd></div>' +
+          '<div><dt>Timestamp</dt><dd>' + esc(d.timestampLabel) + '</dd></div>' +
+          '<div><dt>Camera</dt><dd>' + esc(d.camera_id) + ' — ' + esc(cam.area || cam.name) + '</dd></div>' +
+          '<div><dt>Confidence</dt><dd>' + Number(d.confidence).toFixed(2) + ' (threshold 0.50)</dd></div>' +
+          '<div><dt>Trajectory</dt><dd><a href="#" class="traj-link" data-plate="' + esc(d.plate_text) + '">Track this plate →</a></dd></div>' +
+        '</dl></div>' +
+      '</li>';
+    }).join("");
+    rowsEl.querySelectorAll(".row").forEach(function (row) {
+      row.addEventListener("click", function (e) {
+        if (e.target && e.target.classList && e.target.classList.contains("traj-link")) return;
+        var open = row.classList.toggle("open");
+        row.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      row.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.click(); }
+      });
+    });
+    rowsEl.querySelectorAll(".traj-link").forEach(function (a) {
+      a.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); loadTrajectory(a.getAttribute("data-plate")); });
+    });
+  }
+  function drawCameras() {
+    var cams = regionCameras();
+    document.getElementById("camList").innerHTML = cams.map(function (c) {
+      var dets = allDetections().filter(function (d) { return d.camera_id === c.id; });
+      var count = (c.count !== undefined && c.count !== null) ? c.count : dets.length;
+      var last = dets[0];
+      var meta = c.online
+        ? count + " detections" + (last ? " · last at " + last.time : "")
+        : "No detections — camera offline";
+      return '<li class="cam' + (state.cam === c.id ? " selected" : "") + '" data-cam-id="' + esc(c.id) + '" tabindex="0" role="button"><span class="dot ' + (c.online ? "on" : "off") + '"></span>' +
+        '<div class="info"><p class="name">' + esc(c.name) + '</p>' +
+        '<p class="loc">' + esc(c.id) + (c.area ? ' · ' + esc(c.area) : '') + '</p>' +
+        '<p class="meta">' + esc(meta) + '</p></div>' +
+        '<span class="badge ' + (c.online ? "on" : "off") + '">' + (c.online ? "Online" : "Offline") + '</span></li>';
+    }).join("");
+    document.querySelectorAll("#camList .cam").forEach(function (el) {
+      el.addEventListener("click", function () { setCameraFilter(el.getAttribute("data-cam-id")); });
+      el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCameraFilter(el.getAttribute("data-cam-id")); } });
+    });
+  }
+  function drawStats() {
+    var dets = regionDetections();
+    var s = live.summary || {};
+    var total = isLive() && pick(s, ["total_detections", "total", "count"]) !== undefined
+      ? Number(pick(s, ["total_detections", "total", "count"])) : 0;
+    var avg = 0, high = 0;
+    if (dets.length) {
+      avg = dets.reduce(function (sum, d) { return sum + d.confidence; }, 0) / dets.length;
+      high = dets.filter(function (d) { return d.confidence >= 0.85; }).length;
+    }
+    if (isLive() && pick(s, ["average_confidence", "avg_confidence"]) !== undefined && !dets.length) {
+      avg = Number(pick(s, ["average_confidence", "avg_confidence"]));
+      if (avg > 1.5) avg = avg / 100;
+    }
+    document.getElementById("statToday").textContent = isLive() ? total : 0;
+    document.getElementById("statTodayNote").textContent = "";
+    document.getElementById("statAvg").innerHTML = (isLive() && (dets.length || avg)) ? Math.round(avg * 100) + "<small>%</small>" : "—";
+    document.getElementById("statHigh").innerHTML = high + "<small> / " + dets.length + "</small>";
+    var activeAlerts = live.alerts.filter(function (a) { return String(pick(a, ["status", "state"]) || "active").toLowerCase() === "active"; }).length;
+    document.getElementById("statAlerts").textContent = isLive() ? activeAlerts : 0;
+    document.getElementById("statAlertsNote").textContent = "";
+  }
+  function drawAlerts() {
+    var alerts = isLive() ? live.alerts : [];
+    document.getElementById("alertsCount").textContent = alerts.length + " from API";
+    var el = document.getElementById("alertList");
+    if (!alerts.length) {
+      el.innerHTML = '<li style="color:var(--ink-2);font-size:13.5px;padding:0 0 6px">' + (isLive() ? "No alerts yet." : "Backend not running — double-click run.bat.") + '</li>';
+      return;
+    }
+    el.innerHTML = alerts.map(function (a) {
+      var plate = pick(a, ["plate_text", "plate", "plate_number"]) || "—";
+      var reason = pick(a, ["message", "reason", "note", "description"]) || pick(a, ["alert_type"]) || "Alert";
+      var status = String(pick(a, ["status", "state"]) || "active").toLowerCase();
+      var created = pick(a, ["created_at", "timestamp", "time"]) || "";
+      var id = pick(a, ["id", "alert_id"]) || "";
+      var badge = status === "resolved" ? "resolved" : (status === "acknowledged" ? "ack" : "active");
+      var btn = "";
+      if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge (PATCH)</button>';
+      else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved (PATCH)</button>';
+      return '<li class="alert-item"><div class="a-top"><span class="a-plate">' + esc(plate) + '</span><span class="badge ' + badge + '">' + esc(status) + '</span></div>' +
+        '<p class="a-reason">' + esc(reason) + '</p>' +
+        (created ? '<p class="a-meta">' + esc(created) + (id ? ' · #' + esc(id) : '') + '</p>' : '') + btn + '</li>';
+    }).join("");
+    el.querySelectorAll("[data-alert-ack]").forEach(function (btn) {
+      btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-ack"), "acknowledged"); });
+    });
+    el.querySelectorAll("[data-alert-resolve]").forEach(function (btn) {
+      btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-resolve"), "resolved"); });
+    });
+    document.getElementById("alertFormHint").textContent = isLive()
+      ? "Saved."
+      : "Backend not running — double-click run.bat first.";
+  }
+  function drawCamPills() {
+    var wrap = document.getElementById("camPills");
+    var html = '<button type="button" data-cam="ALL" aria-pressed="' + (state.cam === "ALL") + '">All cameras</button>';
+    html += regionCameras().map(function (c) { return '<button type="button" data-cam="' + esc(c.id) + '" aria-pressed="' + (state.cam === c.id) + '">' + esc(c.id) + ' · ' + esc(c.name) + '</button>'; }).join("");
+    wrap.innerHTML = html;
+    wrap.querySelectorAll("button").forEach(function (btn) {
+      btn.addEventListener("click", function () { setCameraFilter(btn.getAttribute("data-cam")); });
+    });
+  }
+  function drawTrackChips() {
+    var el = document.getElementById("trackChips");
+    var pool = regionDetections();
+    var counts = {};
+    pool.forEach(function (d) { counts[d.plate_text] = (counts[d.plate_text] || 0) + 1; });
+    var plates = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a] || a.localeCompare(b); }).slice(0, 4);
+    if (!plates.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<span>Plates seen in this region:</span>' + plates.map(function (p) {
+      return '<button type="button" data-track-chip="' + esc(p) + '">' + esc(p) + ' · ' + counts[p] + ' sighting' + (counts[p] === 1 ? '' : 's') + '</button>';
+    }).join("");
+    el.querySelectorAll("[data-track-chip]").forEach(function (btn) {
+      btn.addEventListener("click", function () { loadTrajectory(btn.getAttribute("data-track-chip")); });
+    });
+  }
+  function drawAll() {
+    drawStatus(); drawRegionMeta(); drawCamPills(); drawStats(); drawRows();
+    drawCameras(); drawAlerts(); drawTrackChips(); drawMapMarkers();
+  }
+  function stepsForPlate(plate, dets) {
+    return dets.filter(function (d) { return d.plate_text === plate; }).slice().sort(function (a, b) { return a.time.localeCompare(b.time); });
+  }
+  function alertsForPlate(plate) {
+    return (isLive() ? live.alerts : []).filter(function (a) {
+      return String(pick(a, ["plate_text", "plate", "plate_number"]) || "").replace(/\s+/g, "").toUpperCase() === plate;
+    });
+  }
+  function alertItemHtml(a) {
+    var plate = pick(a, ["plate_text", "plate", "plate_number"]) || "—";
+    var reason = pick(a, ["message", "reason", "note", "description"]) || pick(a, ["alert_type"]) || "Alert";
+    var status = String(pick(a, ["status", "state"]) || "active").toLowerCase();
+    var created = pick(a, ["created_at", "timestamp", "time"]) || "";
+    var id = pick(a, ["id", "alert_id"]) || "";
+    var badge = status === "resolved" ? "resolved" : (status === "acknowledged" ? "ack" : "active");
+    var btn = "";
+    if (id && status === "active") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-ack="' + esc(id) + '">Acknowledge (PATCH)</button>';
+    else if (id && status === "acknowledged") btn = '<button type="button" class="btn secondary" style="margin-top:8px;min-height:36px;padding:6px 12px" data-alert-resolve="' + esc(id) + '">Mark resolved (PATCH)</button>';
+    return '<li class="alert-item"><div class="a-top"><span class="a-plate">' + esc(plate) + '</span><span class="badge ' + badge + '">' + esc(status) + '</span></div>' +
+      '<p class="a-reason">' + esc(reason) + '</p>' +
+      (created ? '<p class="a-meta">' + esc(created) + (id ? ' · #' + esc(id) : '') + '</p>' : '') + btn + '</li>';
+  }
+  function trackAlertsInner(plate) {
+    var list = alertsForPlate(plate);
+    var html = '<h3>Alerts for this plate <span class="count">' + list.length + ' · GET /api/alerts · filtered by plate</span></h3>';
+    if (!list.length) {
+      html += '<p class="none">No alerts raised for <strong>' + esc(plate) + '</strong>. You can create one with the button below.</p>';
+      return html;
+    }
+    return html + '<ul class="alert-list">' + list.map(alertItemHtml).join("") + '</ul>';
+  }
+  function wireTrackResult() {
+    var box = document.getElementById("trajResult");
+    if (!box) return;
+    box.querySelectorAll("[data-alert-ack]").forEach(function (btn) {
+      btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-ack"), "acknowledged"); });
+    });
+    box.querySelectorAll("[data-alert-resolve]").forEach(function (btn) {
+      btn.addEventListener("click", function () { patchAlert(btn.getAttribute("data-alert-resolve"), "resolved"); });
+    });
+    box.querySelectorAll("[data-match-plate]").forEach(function (btn) {
+      btn.addEventListener("click", function () { loadTrajectory(btn.getAttribute("data-match-plate")); });
+    });
+    box.querySelectorAll("[data-act]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var plate = btn.getAttribute("data-plate");
+        if (btn.getAttribute("data-act") === "feed") {
+          state.query = plate; document.getElementById("searchInput").value = plate; drawRows();
+          document.getElementById("rows").scrollIntoView({ behavior: "smooth", block: "start" });
+        } else if (btn.getAttribute("data-act") === "watch") {
+          document.getElementById("alertPlateInput").value = plate;
+          document.getElementById("alertReasonInput").focus();
+          document.getElementById("createAlertBtn").scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    });
+  }
+  function drawTrajectorySteps(plate, steps, source) {
+    document.getElementById("trajSource").textContent = source;
+    var box = document.getElementById("trajResult");
+    var camSet = {};
+    steps.forEach(function (d) { camSet[d.camera_id] = true; });
+    var first = steps[0], last = steps[steps.length - 1];
+    var route = '<div class="route" aria-hidden="true">' + steps.map(function (d, i) {
+      var cam = camById(d.camera_id);
+      return '<div class="route-node' + (i === steps.length - 1 && steps.length > 1 ? ' last' : '') + '"><div class="r-dot"></div><div class="r-cam">' + esc(cam.name) + '</div><div class="r-time">' + esc(d.time) + '</div></div>';
+    }).join("") + '</div>';
+    var list = '<ul class="traj-steps">' + steps.map(function (d, i) {
+      var cam = camById(d.camera_id);
+      var badge = steps.length > 1 && i === 0 ? ' <span class="seen-badge">First seen</span>' : (steps.length > 1 && i === steps.length - 1 ? ' <span class="seen-badge last">Last seen</span>' : '');
+      return '<li><span class="traj-dot"></span><div class="t-main"><div class="t-cam">' + esc(cam.name) + ' <span style="color:var(--ink-3);font-size:12px">' + esc(d.camera_id) + '</span>' + badge + '</div><div class="t-sub">' + esc(cam.area || "") + ' · ' + pct(d.confidence) + ' confidence · ' + esc(d.event_id) + '</div></div><span class="t-time">' + esc(d.time) + '</span></li>';
+    }).join("") + '</ul>';
+    box.innerHTML =
+      '<div class="track-summary">' +
+        '<span class="plate big" aria-label="Plate ' + esc(plate) + '"><span class="ind">IND</span><span class="num">' + esc(plate) + '</span></span>' +
+        '<div class="track-stats">' +
+          '<div class="ts"><b>' + steps.length + '</b><span>Sighting' + (steps.length === 1 ? '' : 's') + '</span></div>' +
+          '<div class="ts"><b>' + Object.keys(camSet).length + '</b><span>Camera' + (Object.keys(camSet).length === 1 ? '' : 's') + '</span></div>' +
+          '<div class="ts"><b>' + esc(first.time) + '</b><span>First seen · ' + esc(camById(first.camera_id).name) + '</span></div>' +
+          '<div class="ts"><b>' + esc(last.time) + '</b><span>Last seen · ' + esc(camById(last.camera_id).name) + '</span></div>' +
+        '</div>' +
+      '</div>' +
+      route + list +
+      '<div class="track-alerts" id="trackAlerts" data-plate="' + esc(plate) + '">' + trackAlertsInner(plate) + '</div>' +
+      '<div class="track-actions">' +
+        '<button type="button" class="btn secondary" data-act="feed" data-plate="' + esc(plate) + '">Show in feed below</button>' +
+        '<button type="button" class="btn secondary" data-act="watch" data-plate="' + esc(plate) + '">Create alert for this plate</button>' +
+      '</div>';
+    wireTrackResult();
+  }
+  function drawTrackNotFound(plate, matches) {
+    document.getElementById("trajSource").textContent = "";
+    var box = document.getElementById("trajResult");
+    var html = '<span class="plate big" aria-label="Plate ' + esc(plate) + '"><span class="ind">IND</span><span class="num">' + esc(plate) + '</span></span>';
+    if (matches && matches.length) {
+      html += '<p style="margin:12px 0 0;color:var(--ink-2);font-size:14px">No exact track for <strong style="color:var(--ink)">' + esc(plate) + '</strong> — these plates match what you typed. Tap one to track it:</p>' +
+        '<div class="match-list">' + matches.map(function (p) { return '<button type="button" data-match-plate="' + esc(p) + '">' + esc(p) + '</button>'; }).join("") + '</div>';
+    } else {
+      html += '<p style="margin:12px 0 0;color:var(--ink-2);font-size:14px"><strong style="color:var(--ink)">No sightings found for ' + esc(plate) + '.</strong><br>' +
+        'The trajectory endpoint and the live feed have no record of this plate yet. Check the spelling, or tap Start Camera and hold the plate up to the camera first.</p>';
+    }
+    html += '<div class="track-alerts" id="trackAlerts" data-plate="' + esc(plate) + '">' + trackAlertsInner(plate) + '</div>';
+    box.innerHTML = html;
+    wireTrackResult();
+  }
+  function loadTrajectory(plateRaw, opts) {
+    opts = opts || {};
+    var plate = String(plateRaw != null ? plateRaw : document.getElementById("trajInput").value || "").replace(/\s+/g, "").toUpperCase();
+    if (!plate) { document.getElementById("trajInput").focus(); return; }
+    document.getElementById("trajInput").value = plate;
+    if (!opts.noScroll) document.getElementById("trackerPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!isLive()) {
+      document.getElementById("trajSource").textContent = "";
+      document.getElementById("trajResult").innerHTML = '<p style="margin:0;color:var(--ink-2);font-size:14px">Backend not running — double-click run.bat.</p>';
+      return;
+    }
+    document.getElementById("trajResult").innerHTML = '<p style="margin:0;color:var(--ink-2);font-size:13.5px">Tracking ' + esc(plate) + ' — calling GET /api/vehicles/' + esc(plate) + '/trajectory…</p>';
+    fetchJson("/api/alerts").then(function (data) {
+      live.alerts = asArray(data, ["alerts"]); drawAlerts();
+      var box = document.getElementById("trackAlerts");
+      if (box) box.innerHTML = trackAlertsInner(box.getAttribute("data-plate"));
+    }).catch(function () {});
+    fetchJson("/api/vehicles/" + encodeURIComponent(plate) + "/trajectory").then(function (data) {
+      var arr = asArray(data, ["trajectory", "sightings", "steps", "detections"]);
+      var steps = arr.map(function (r, i) { return normalizeDetection(r, i); });
+      if (!steps.length) steps = stepsForPlate(plate, allDetections());
+      if (!steps.length) {
+        var seen = {}, matches = [];
+        allDetections().forEach(function (d) { if (d.plate_text.indexOf(plate) !== -1 && !seen[d.plate_text]) { seen[d.plate_text] = true; matches.push(d.plate_text); } });
+        drawTrackNotFound(plate, matches);
+        return;
+      }
+      steps.sort(function (a, b) { return a.time.localeCompare(b.time); });
+      drawTrajectorySteps(plate, steps, "");
+      if (!opts.noSync) { state.query = plate; document.getElementById("searchInput").value = plate; drawRows(); }
+    }).catch(function () {
+      var steps = stepsForPlate(plate, allDetections());
+      if (!steps.length) {
+        var seen2 = {}, matches2 = [];
+        allDetections().forEach(function (d) { if (d.plate_text.indexOf(plate) !== -1 && !seen2[d.plate_text]) { seen2[d.plate_text] = true; matches2.push(d.plate_text); } });
+        drawTrackNotFound(plate, matches2);
+        return;
+      }
+      drawTrajectorySteps(plate, steps, "");
+    });
+  }
+
+  function fetchJson(path, opts) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 4000);
+    var o = opts || {}; o.signal = ctrl.signal;
+    return fetch(API_BASE + path, o).then(function (r) {
+      clearTimeout(timer);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).catch(function (e) { clearTimeout(timer); throw e; });
+  }
+  function connectBackend(silent) {
+    live.connecting = true; drawStatus();
+    var jobs = [
+      ["summary", "/api/analytics/summary"],
+      ["cameras", "/api/analytics/cameras"],
+      ["camlist", "/api/cameras"],
+      ["detections", "/api/detections?limit=200&offset=0"],
+      ["alerts", "/api/alerts"]
+    ];
+    var results = {};
+    return Promise.all(jobs.map(function (j) {
+      return fetchJson(j[1]).then(function (data) { results[j[0]] = data; live.endpointStatus[j[0]] = true; }).catch(function () { live.endpointStatus[j[0]] = false; });
+    })).then(function () {
+      var gotCore = live.endpointStatus.summary || live.endpointStatus.detections;
+      live.connecting = false;
+      if (!gotCore) {
+        live.connected = false; live.summary = null;
+        live.detections = []; live.cameras = null; live.alerts = [];
+        live.pipelineControl = false; live.pipelineRunning = false;
+        updateCamStatus();
+        drawAll();
+        return false;
+      }
+      live.connected = true; live.lastFetch = new Date().toLocaleTimeString();
+      if (results.summary) live.summary = results.summary;
+      var camArr = [];
+      if (results.cameras) camArr = camArr.concat(asArray(results.cameras, ["camera_analytics", "cameras"]).map(normalizeCamera));
+      if (results.camlist) camArr = camArr.concat(asArray(results.camlist, ["cameras"]).map(normalizeCamera));
+      if (camArr.length) {
+        var byId = {};
+        camArr.forEach(function (c) { byId[c.id] = c; });
+        live.cameras = Object.keys(byId).map(function (k) { return byId[k]; });
+      } else {
+        live.cameras = null;
+      }
+      if (results.detections) live.detections = asArray(results.detections).map(normalizeDetection);
+      if (results.alerts) live.alerts = asArray(results.alerts, ["alerts"]);
+      state.cam = "ALL";
+      return fetchJson("/api/pipeline/status").then(function (data) {
+        live.pipelineControl = true;
+        live.pipelineRunning = !!data.running;
+        updateCamStatus();
+        drawAll();
+        return true;
+      }).catch(function () {
+        live.pipelineControl = false; live.pipelineRunning = false;
+        updateCamStatus();
+        drawAll();
+        return true;
+      });
+    });
+  }
+  function createAlert() {
+    var plate = document.getElementById("alertPlateInput").value.replace(/\s+/g, "").toUpperCase();
+    var reason = document.getElementById("alertReasonInput").value.trim();
+    if (!isLive()) { document.getElementById("alertFormHint").textContent = "Backend not running — double-click run.bat first."; return; }
+    if (!plate) { document.getElementById("alertFormHint").textContent = "Enter a plate first."; return; }
+    fetchJson("/api/alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alert_type: "watchlist", message: reason || "Watchlist", plate_text: plate }) })
+      .then(function () { document.getElementById("alertFormHint").textContent = "Alert created for " + plate + ". Refreshing…"; return connectBackend(true); })
+      .catch(function (e) { document.getElementById("alertFormHint").textContent = "Create failed."; });
+  }
+  function patchAlert(id, nextStatus) {
+    fetchJson("/api/alerts/" + encodeURIComponent(id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: nextStatus }) })
+      .then(function () { return connectBackend(true); })
+      .catch(function () { document.getElementById("alertFormHint").textContent = "Update failed."; });
+  }
+
+  function startCamera() {
+    var el = document.getElementById("camStatus");
+    if (!isLive()) { el.textContent = "Backend not running — double-click run.bat."; return; }
+    el.textContent = "Starting…";
+    fetchJson("/api/pipeline/start", { method: "POST" }).then(function (data) {
+      live.pipelineRunning = !!(data && data.running);
+      el.textContent = live.pipelineRunning ? "Camera running" : "Did not start.";
+    }).catch(function (e) {
+      live.pipelineRunning = false;
+      el.textContent = String(e.message).indexOf("404") !== -1 ? "Add pipeline_control.py first." : "Backend not running — double-click run.bat.";
+    });
+  }
+  function stopCamera() {
+    var el = document.getElementById("camStatus");
+    if (!isLive()) { live.pipelineRunning = false; el.textContent = "Camera stopped."; return; }
+    fetchJson("/api/pipeline/stop", { method: "POST" }).then(function (data) {
+      live.pipelineRunning = !!(data && data.running);
+      el.textContent = live.pipelineRunning ? "Still running." : "Camera stopped.";
+    }).catch(function () { el.textContent = "Camera stopped."; });
+  }
+
+  function initMap() {
+    var el = document.getElementById("map");
+    if (typeof L === "undefined") {
+      el.innerHTML = '<p style="padding:16px">Map could not load.</p>';
+      return;
+    }
+    map = L.map("map").setView(REGIONS[DEFAULT_REGION].centre, 11);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+    drawMapMarkers();
+  }
+  function drawMapMarkers() {
+    if (!map || typeof L === "undefined") return;
+    mergedCameras().forEach(function (c) {
+      if (c.lat === undefined || c.lng === undefined) return;
+      var sel = state.cam === c.id ? " sel" : "";
+      var icon = L.divIcon({ className: "", html: '<div class="map-pin ' + (c.online ? "on" : "off") + sel + '"></div>', iconSize: [22, 22], iconAnchor: [11, 22] });
+      if (markers[c.id]) {
+        markers[c.id].setIcon(icon);
+      } else {
+        var m = L.marker([c.lat, c.lng], { icon: icon }).addTo(map);
+        m.bindPopup("<b>" + esc(c.name) + "</b><br>" + esc(c.id) + " · " + (c.online ? "Online" : "Offline") + "<br>Tap the pin to filter the feed to this camera.");
+        m.on("click", function () { setCameraFilter(c.id); });
+        markers[c.id] = m;
+      }
+    });
+    document.getElementById("mapCount").textContent = mergedCameras().length + " cameras · tap a pin to filter" + (state.cam !== "ALL" ? " · filtered to " + state.cam : "");
+  }
+  function setCameraFilter(id) {
+    state.cam = id;
+    if (id !== "ALL") {
+      var cam = camById(id);
+      if (cam.region) state.region = cam.region;
+    }
+    drawCamPills(); drawRows(); drawCameras(); drawRegionMeta(); drawStatus(); drawMapMarkers();
+  }
+  function setRegion(region) {
+    state.region = region; state.cam = "ALL"; state.query = "";
+    document.getElementById("searchInput").value = "";
+    drawAll();
+    if (map) map.setView(REGIONS[region].centre, 11);
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function () { state.query = this.value; drawRows(); });
+  document.getElementById("searchInput").addEventListener("keydown", function (e) { if (e.key === "Enter" && this.value.trim()) { e.preventDefault(); loadTrajectory(this.value); } });
+  document.querySelectorAll(".region-option").forEach(function (btn) {
+    btn.addEventListener("click", function () { setRegion(btn.getAttribute("data-region")); });
+  });
+  document.getElementById("refreshBtn").addEventListener("click", function () { connectBackend(false); });
+  document.getElementById("runBtn").addEventListener("click", function () {
+    document.getElementById("localMsg").textContent = "Double-click run.bat.";
+  });
+  document.getElementById("stopBtn").addEventListener("click", function () {
+    document.getElementById("localMsg").textContent = "Double-click stop.bat.";
+  });
+  document.getElementById("showAllBtn").addEventListener("click", function () { setCameraFilter("ALL"); });
+  document.getElementById("trajBtn").addEventListener("click", function () { loadTrajectory(); });
+  document.getElementById("trajInput").addEventListener("keydown", function (e) { if (e.key === "Enter") loadTrajectory(); });
+  document.getElementById("createAlertBtn").addEventListener("click", createAlert);
+  document.getElementById("startCamBtn").addEventListener("click", startCamera);
+  document.getElementById("stopCamBtn").addEventListener("click", stopCamera);
+
+  initMap();
+  drawAll();
+  connectBackend(true);
+  setInterval(function () { if (isLive()) connectBackend(true); }, 20000);
+</script>
+</body>
+</html>

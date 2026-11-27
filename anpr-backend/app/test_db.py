@@ -9,7 +9,6 @@ import sys
 
 from app.database import engine
 
-
 def main():
     try:
         with engine.connect():
@@ -19,7 +18,6 @@ def main():
         print(error)
         return 1
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
