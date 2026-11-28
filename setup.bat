@@ -39,7 +39,17 @@ if not exist .env (
 echo.
 echo Create the tables.
 python -m app.test_db
+if errorlevel 1 (
+  echo Database connection failed. Open anpr-backend\.env and set DATABASE_URL to the PostgreSQL user and database created above.
+  pause
+  exit /b 1
+)
 python -m app.create_tables
+if errorlevel 1 (
+  echo Could not create the database tables. Fix the error above, then double-click setup.bat again.
+  pause
+  exit /b 1
+)
 if not exist models (
   mkdir models
 )
